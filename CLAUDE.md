@@ -21,6 +21,29 @@ npx react-native run-android
 npx tsc --noEmit
 ```
 
+## Project Structure
+
+```
+tablet-note-app/
+├── android/app/src/main/java/com/tabletnoteapp/  # Kotlin native
+│   ├── canvas/                    # Pure drawing engine (no RN dependency)
+│   │   ├── DrawingCanvas.kt       # Custom View: touch events + rendering
+│   │   ├── models/Stroke.kt       # Stroke data model
+│   │   ├── models/Point.kt        # Point (x, y, pressure) data model
+│   │   └── utils/BezierSmoother.kt
+│   └── reactbridge/               # RN <-> Kotlin bridge
+│       ├── CanvasViewManager.kt   # Exposes DrawingCanvas as RN UI component
+│       ├── CanvasModule.kt        # Exposes Kotlin methods (save, clear, etc.) to JS
+│       └── CanvasPackage.kt       # Registers both with RN engine
+├── src/                           # React Native (TypeScript)
+│   ├── components/                # Toolbar.tsx, ColorPicker.tsx
+│   ├── screens/                   # HomeScreen.tsx, NoteEditorScreen.tsx
+│   ├── store/                     # Zustand stores
+│   ├── native/                    # CanvasView.tsx, CanvasModule.ts (bridge wrappers)
+│   └── types/canvasTypes.ts       # Shared types between RN and Kotlin
+└── App.tsx                        # Entry point, navigation setup
+```
+
 ## Architecture
 
 ### Hybrid RN + Native Drawing Engine
