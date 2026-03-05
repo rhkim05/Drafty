@@ -28,8 +28,9 @@ export default function HomeScreen() {
   const openNote = (note: Note) => {
     if (note.type === 'pdf') {
       navigation.navigate('PdfViewer', { note });
+    } else {
+      navigation.navigate('NoteEditor', { note });
     }
-    // note type will navigate to NoteEditorScreen in the future
   };
 
   const createNote = () => {
@@ -41,6 +42,7 @@ export default function HomeScreen() {
       type: 'note',
     };
     addNote(note);
+    navigation.navigate('NoteEditor', { note });
   };
 
   const importPdf = async () => {

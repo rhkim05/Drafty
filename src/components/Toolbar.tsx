@@ -1,0 +1,100 @@
+import React from 'react';
+import {
+  View,
+  TouchableOpacity,
+  Text,
+  StyleSheet,
+} from 'react-native';
+import { useToolStore } from '../store/useToolStore';
+
+export default function Toolbar() {
+  const { activeTool, canUndo, canRedo, setTool } = useToolStore();
+
+  return (
+    <View style={styles.container}>
+      <TouchableOpacity
+        style={[styles.button, activeTool === 'pen' && styles.buttonActive]}
+        onPress={() => setTool('pen')}
+      >
+        <Text style={[styles.icon, activeTool === 'pen' && styles.iconActive]}>✏️</Text>
+        <Text style={[styles.label, activeTool === 'pen' && styles.labelActive]}>Pen</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.button, activeTool === 'eraser' && styles.buttonActive]}
+        onPress={() => setTool('eraser')}
+      >
+        <Text style={[styles.icon, activeTool === 'eraser' && styles.iconActive]}>⬜</Text>
+        <Text style={[styles.label, activeTool === 'eraser' && styles.labelActive]}>Eraser</Text>
+      </TouchableOpacity>
+
+      <View style={styles.divider} />
+
+      <TouchableOpacity
+        style={[styles.button, !canUndo && styles.buttonDisabled]}
+        disabled={!canUndo}
+      >
+        <Text style={[styles.icon, !canUndo && styles.iconDisabled]}>↩️</Text>
+        <Text style={[styles.label, !canUndo && styles.labelDisabled]}>Undo</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.button, !canRedo && styles.buttonDisabled]}
+        disabled={!canRedo}
+      >
+        <Text style={[styles.icon, !canRedo && styles.iconDisabled]}>↪️</Text>
+        <Text style={[styles.label, !canRedo && styles.labelDisabled]}>Redo</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0D8',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    gap: 4,
+  },
+  button: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 8,
+    flexDirection: 'row',
+    gap: 6,
+  },
+  buttonActive: {
+    backgroundColor: '#1A1A1A',
+  },
+  buttonDisabled: {
+    opacity: 0.3,
+  },
+  icon: {
+    fontSize: 16,
+  },
+  iconActive: {},
+  iconDisabled: {},
+  label: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#1A1A1A',
+  },
+  labelActive: {
+    color: '#FFFFFF',
+  },
+  labelDisabled: {
+    color: '#1A1A1A',
+  },
+  divider: {
+    width: 1,
+    height: 24,
+    backgroundColor: '#E0E0D8',
+    marginHorizontal: 8,
+  },
+});

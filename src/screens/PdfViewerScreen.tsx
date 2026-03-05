@@ -10,6 +10,7 @@ import {
 import Pdf from 'react-native-pdf';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation';
+import Toolbar from '../components/Toolbar';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PdfViewer'>;
 
@@ -30,6 +31,8 @@ export default function PdfViewerScreen({ route, navigation }: Props) {
           {totalPages > 0 ? `${currentPage} / ${totalPages}` : ''}
         </Text>
       </View>
+
+      <Toolbar />
 
       <View style={styles.pdfContainer}>
         {loading && (
