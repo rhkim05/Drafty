@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Note } from '../types/canvasTypes';
+import { Note } from '../types/noteTypes';
 
 interface NotebookState {
   notes: Note[];

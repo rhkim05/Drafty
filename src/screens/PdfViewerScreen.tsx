@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import Pdf from 'react-native-pdf';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../../App';
+import { RootStackParamList } from '../navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PdfViewer'>;
 

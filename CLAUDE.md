@@ -33,36 +33,57 @@ npx tsc --noEmit
 
 ```
 tablet-note-app/
-├── android/app/src/main/java/com/tabletnoteapp/  # Kotlin native
-│   ├── canvas/                    # Pure drawing engine (no RN dependency)
-│   │   ├── DrawingCanvas.kt       # Custom View: touch events + rendering
-│   │   ├── models/Stroke.kt       # Stroke data model
-│   │   ├── models/Point.kt        # Point (x, y, pressure) data model
-│   │   └── utils/BezierSmoother.kt
-│   └── reactbridge/               # RN <-> Kotlin bridge
-│       ├── CanvasViewManager.kt   # Exposes DrawingCanvas as RN UI component
-│       ├── CanvasModule.kt        # Exposes Kotlin methods (save, clear, etc.) to JS
-│       └── CanvasPackage.kt       # Registers both with RN engine
+├── index.js                       # App entry point, registers TabletNoteApp component
+├── App.tsx                        # Entry point, mounts <Navigation />
+├── metro.config.js
+├── android/
+│   ├── build.gradle               # AGP 8.1.1, compileSdk 34, androidx pins
+│   ├── gradle.properties          # JDK 17 path, Hermes, new arch flags
+│   ├── settings.gradle
+│   └── app/
+│       ├── build.gradle
+│       └── src/main/java/com/tabletnoteapp/
+│           ├── MainActivity.kt
+│           ├── MainApplication.kt
+│           ├── canvas/                    # Pure drawing engine (no RN dependency)
+│           │   ├── DrawingCanvas.kt       # Custom View: touch events + rendering
+│           │   ├── models/Stroke.kt
+│           │   ├── models/Point.kt        # Point (x, y, pressure)
+│           │   └── utils/BezierSmoother.kt
+│           └── reactbridge/               # RN <-> Kotlin bridge
+│               ├── CanvasViewManager.kt
+│               ├── CanvasModule.kt
+│               └── CanvasPackage.kt
 ├── src/
 │   ├── screens/
 │   │   ├── HomeScreen.tsx         # Note grid, PDF import button
-│   │   ├── PdfViewerScreen.tsx    # Renders PDF pages via react-native-pdf
+│   │   ├── PdfViewerScreen.tsx    # Vertical scrolling PDF viewer
 │   │   └── NoteEditorScreen.tsx   # (stub) Drawing canvas screen
 │   ├── store/
-│   │   ├── useNotebookStore.ts    # Notes list (addNote, deleteNote)
+│   │   ├── useNotebookStore.ts    # Implemented: notes list (addNote, deleteNote)
 │   │   ├── useToolStore.ts        # (stub) Active pen/eraser state
 │   │   └── useEditorStore.ts      # (stub) Current page, zoom
+│   ├── navigation/
+│   │   └── index.tsx              # NavigationContainer + RootStackParamList
 │   ├── native/                    # Bridge wrappers (stubs)
-│   │   ├── CanvasView.tsx         # Maps Kotlin DrawingCanvas as RN component
-│   │   └── CanvasModule.ts        # TypeScript wrapper for Kotlin canvas methods
-│   └── types/canvasTypes.ts       # Shared types: Note, NoteType, StrokeStyle, ToolMode
-└── App.tsx                        # NavigationContainer + RootStackParamList
+│   │   ├── CanvasView.tsx
+│   │   └── CanvasModule.ts
+│   ├── components/
+│   │   ├── Toolbar.tsx            # (stub)
+│   │   └── ColorPicker.tsx        # (stub)
+│   ├── utils/
+│   │   ├── canvas.ts              # (stub)
+│   │   ├── geometry.ts            # (stub)
+│   │   └── performance.ts         # (stub)
+│   └── types/
+│       ├── noteTypes.ts           # Note, NoteType
+│       └── canvasTypes.ts         # PenColor, ToolMode, StrokeStyle (RN <-> Kotlin contract)
 ```
 
 ## Architecture
 
-### Navigation (`App.tsx`)
-Uses `@react-navigation/native-stack`. Route types are exported from `App.tsx` as `RootStackParamList`. Current routes: `Home` and `PdfViewer: { note: Note }`. `NoteEditorScreen` is not yet wired into navigation.
+### Navigation (`src/navigation/index.tsx`)
+Uses `@react-navigation/native-stack`. `RootStackParamList` and the `NavigationContainer` live in `src/navigation/index.tsx`. `App.tsx` just mounts `<Navigation />`. Current routes: `Home` and `PdfViewer: { note: Note }`. `NoteEditorScreen` is not yet wired in.
 
 ### PDF Import Flow
 1. User taps "Import PDF" → `react-native-document-picker` opens system file picker
@@ -72,7 +93,7 @@ Uses `@react-navigation/native-stack`. Route types are exported from `App.tsx` a
 
 ### State Management
 - `useNotebookStore` — the only implemented store; holds `Note[]` in memory (no persistence yet)
-- `Note` type is defined in `src/types/canvasTypes.ts` and is the shared contract across screens and the store
+- `Note` type is defined in `src/types/noteTypes.ts` and is the shared contract across screens and the store
 
 ### Hybrid Drawing Engine (not yet active)
 Drawing will be handled entirely in Kotlin (`canvas/`) using Android Canvas API, bypassing the RN bridge for rendering. The bridge (`reactbridge/`) is only for commands (tool changes, save, undo) and events. The `src/native/` files are stubs waiting for the Kotlin implementation.

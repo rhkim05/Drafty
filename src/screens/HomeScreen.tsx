@@ -13,8 +13,8 @@ import RNFS from 'react-native-fs';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNotebookStore } from '../store/useNotebookStore';
-import { Note } from '../types/canvasTypes';
-import { RootStackParamList } from '../../App';
+import { Note } from '../types/noteTypes';
+import { RootStackParamList } from '../navigation';
 
 type HomeNav = NativeStackNavigationProp<RootStackParamList, 'Home'>;
 
