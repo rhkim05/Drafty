@@ -23,6 +23,7 @@ npx tsc --noEmit
 ```
 
 ### Android build requirements
+
 - **JDK 17** is required (JDK 21+ breaks Gradle 8.3). Path is pinned in `android/gradle.properties` via `org.gradle.java.home`.
 - `android/gradle.properties` sets `org.gradle.java.home=/Library/Java/JavaVirtualMachines/zulu-17.jdk/Contents/Home` — update this path if JDK 17 is installed elsewhere.
 - Gradle wrapper: 8.3, AGP: 8.1.1. Do not upgrade these — RN 0.73's gradle plugin has Kotlin warnings that become errors under Gradle 8.11+.
@@ -57,17 +58,17 @@ tablet-note-app/
 ├── src/
 │   ├── screens/
 │   │   ├── HomeScreen.tsx         # Note grid, PDF import button
-│   │   ├── PdfViewerScreen.tsx    # Vertical scrolling PDF viewer
-│   │   └── NoteEditorScreen.tsx   # (stub) Drawing canvas screen
+│   │   ├── PdfViewerScreen.tsx    # PDF viewer + canvas overlay for drawing on PDFs
+│   │   └── NoteEditorScreen.tsx   # Blank drawing canvas screen
 │   ├── store/
-│   │   ├── useNotebookStore.ts    # Implemented: notes list (addNote, deleteNote)
-│   │   ├── useToolStore.ts        # (stub) Active pen/eraser state
+│   │   ├── useNotebookStore.ts    # Notes list with AsyncStorage persistence (addNote, deleteNote, updateNote)
+│   │   ├── useToolStore.ts        # Active tool state (pen/eraser/select), undo/redo availability
 │   │   └── useEditorStore.ts      # (stub) Current page, zoom
 │   ├── navigation/
-│   │   └── index.tsx              # NavigationContainer + RootStackParamList
-│   ├── native/                    # Bridge wrappers (stubs)
-│   │   ├── CanvasView.tsx
-│   │   └── CanvasModule.ts
+│   │   └── index.tsx              # NavigationContainer + RootStackParamList (Home, PdfViewer, NoteEditor)
+│   ├── native/                    # Bridge wrappers
+│   │   ├── CanvasView.tsx         # requireNativeComponent wrapper with forwardRef
+│   │   └── CanvasModule.ts        # undo/redo/clear/getStrokes/loadStrokes imperative commands
 │   ├── components/
 │   │   ├── Toolbar.tsx            # (stub)
 │   │   └── ColorPicker.tsx        # (stub)
@@ -83,22 +84,27 @@ tablet-note-app/
 ## Architecture
 
 ### Navigation (`src/navigation/index.tsx`)
+
 Uses `@react-navigation/native-stack`. `RootStackParamList` and the `NavigationContainer` live in `src/navigation/index.tsx`. `App.tsx` just mounts `<Navigation />`. Current routes: `Home` and `PdfViewer: { note: Note }`. `NoteEditorScreen` is not yet wired in.
 
 ### PDF Import Flow
+
 1. User taps "Import PDF" → `react-native-document-picker` opens system file picker
 2. Selected file is copied to `DocumentDirectoryPath/pdfs/` via `react-native-fs`
 3. A `Note` object (`type: 'pdf'`, `pdfUri: <internal path>`) is saved to `useNotebookStore`
 4. Tapping the PDF card navigates to `PdfViewerScreen` with the note passed as a route param
 
 ### State Management
+
 - `useNotebookStore` — the only implemented store; holds `Note[]` in memory (no persistence yet)
 - `Note` type is defined in `src/types/noteTypes.ts` and is the shared contract across screens and the store
 
 ### Hybrid Drawing Engine (not yet active)
+
 Drawing will be handled entirely in Kotlin (`canvas/`) using Android Canvas API, bypassing the RN bridge for rendering. The bridge (`reactbridge/`) is only for commands (tool changes, save, undo) and events. The `src/native/` files are stubs waiting for the Kotlin implementation.
 
 ### Known Dependency Quirks
+
 - `npm install` requires `--legacy-peer-deps` due to conflicts between installed library versions and RN 0.73
 - `react-native-pdf` requires `react-native-blob-util` as a peer dependency
 - `@react-native/metro-config` must be installed explicitly (not bundled in this setup)
@@ -110,4 +116,5 @@ Drawing will be handled entirely in Kotlin (`canvas/`) using Android Canvas API,
   - `@react-native-async-storage/async-storage@1.23.1` (v2+ requires Kotlin 2.1.0 via KSP; project uses Kotlin 1.8.0)
 
 ### Git / GitHub
+
 - `android/app/build/` is in `.gitignore` — never commit build outputs. The debug APK is 164MB and will be rejected by GitHub.
