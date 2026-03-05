@@ -81,3 +81,11 @@ Drawing will be handled entirely in Kotlin (`canvas/`) using Android Canvas API,
 - `npm install` requires `--legacy-peer-deps` due to conflicts between installed library versions and RN 0.73
 - `react-native-pdf` requires `react-native-blob-util` as a peer dependency
 - `@react-native/metro-config` must be installed explicitly (not bundled in this setup)
+- **Do not upgrade these packages** — they are pinned to the last versions compatible with RN 0.73 (which lacks `BaseReactPackage`):
+  - `react-native-screens@3.35.0` (3.36+ breaks)
+  - `react-native-safe-area-context@4.10.0` (4.11+ breaks)
+  - `react-native-blob-util@0.19.11` (0.21+ breaks)
+  - `@react-navigation/native@6.x` + `@react-navigation/native-stack@6.x` (v7 requires screens 4.x)
+
+### Git / GitHub
+- `android/app/build/` is in `.gitignore` — never commit build outputs. The debug APK is 164MB and will be rejected by GitHub.

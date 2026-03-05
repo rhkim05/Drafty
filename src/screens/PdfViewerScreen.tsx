@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -31,27 +31,26 @@ export default function PdfViewerScreen({ route, navigation }: Props) {
         </Text>
       </View>
 
-      {loading && (
-        <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color="#1A1A1A" />
-          <Text style={styles.loadingText}>Loading PDF...</Text>
-        </View>
-      )}
-
-      <Pdf
-        source={{ uri: note.pdfUri, cache: true }}
-        style={styles.pdf}
-        enablePaging
-        horizontal
-        onLoadComplete={(pages) => {
-          setTotalPages(pages);
-          setLoading(false);
-        }}
-        onPageChanged={(page) => setCurrentPage(page)}
-        onError={() => {
-          setLoading(false);
-        }}
-      />
+      <View style={styles.pdfContainer}>
+        {loading && (
+          <View style={styles.loadingOverlay}>
+            <ActivityIndicator size="large" color="#FFFFFF" />
+            <Text style={styles.loadingText}>Loading PDF...</Text>
+          </View>
+        )}
+        <Pdf
+          source={{ uri: `file://${note.pdfUri}`, cache: true }}
+          style={styles.pdf}
+          enablePaging
+          horizontal
+          onLoadComplete={(pages) => {
+            setTotalPages(pages);
+            setLoading(false);
+          }}
+          onPageChanged={(page) => setCurrentPage(page)}
+          onError={() => setLoading(false)}
+        />
+      </View>
     </SafeAreaView>
   );
 }
@@ -91,6 +90,9 @@ const styles = StyleSheet.create({
     minWidth: 60,
     textAlign: 'right',
   },
+  pdfContainer: {
+    flex: 1,
+  },
   pdf: {
     flex: 1,
     width: '100%',
@@ -100,7 +102,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#2C2C2C',
-    zIndex: 10,
   },
   loadingText: {
     color: '#AAAAAA',
