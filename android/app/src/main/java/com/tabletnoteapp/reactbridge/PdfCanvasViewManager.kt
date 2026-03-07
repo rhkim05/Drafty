@@ -1,0 +1,65 @@
+package com.tabletnoteapp.reactbridge
+
+import android.graphics.Color
+import com.facebook.react.bridge.Arguments
+import com.facebook.react.modules.core.DeviceEventManagerModule
+import com.facebook.react.uimanager.SimpleViewManager
+import com.facebook.react.uimanager.ThemedReactContext
+import com.facebook.react.uimanager.annotations.ReactProp
+import com.tabletnoteapp.canvas.PdfDrawingView
+import com.tabletnoteapp.canvas.models.ToolType
+
+class PdfCanvasViewManager : SimpleViewManager<PdfDrawingView>() {
+
+    override fun getName() = "PdfCanvasView"
+
+    override fun createViewInstance(context: ThemedReactContext): PdfDrawingView {
+        val view = PdfDrawingView(context)
+
+        view.onPageChanged = { page ->
+            context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                .emit("pdfCanvasPageChanged", Arguments.createMap().apply { putInt("page", page) })
+        }
+        view.onLoadComplete = { totalPages ->
+            context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                .emit("pdfCanvasLoadComplete", Arguments.createMap().apply { putInt("totalPages", totalPages) })
+        }
+        view.onUndoRedoStateChanged = { canUndo, canRedo ->
+            context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                .emit("canvasUndoRedoState", Arguments.createMap().apply {
+                    putBoolean("canUndo", canUndo)
+                    putBoolean("canRedo", canRedo)
+                })
+        }
+        return view
+    }
+
+    @ReactProp(name = "pdfUri")
+    fun setPdfUri(view: PdfDrawingView, uri: String?) {
+        if (uri != null) view.openPdf(uri)
+    }
+
+    @ReactProp(name = "tool")
+    fun setTool(view: PdfDrawingView, tool: String?) {
+        view.currentTool = when (tool) {
+            "eraser" -> ToolType.ERASER
+            "pen"    -> ToolType.PEN
+            else     -> ToolType.SELECT
+        }
+    }
+
+    @ReactProp(name = "penColor")
+    fun setPenColor(view: PdfDrawingView, color: String?) {
+        if (color != null) view.penColor = Color.parseColor(color)
+    }
+
+    @ReactProp(name = "penThickness", defaultFloat = 4f)
+    fun setPenThickness(view: PdfDrawingView, thickness: Float) {
+        view.penThickness = thickness
+    }
+
+    @ReactProp(name = "eraserThickness", defaultFloat = 24f)
+    fun setEraserThickness(view: PdfDrawingView, thickness: Float) {
+        view.eraserThickness = thickness
+    }
+}

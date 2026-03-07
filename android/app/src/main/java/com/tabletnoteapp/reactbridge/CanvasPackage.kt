@@ -12,8 +12,8 @@ import com.facebook.react.uimanager.ViewManager
 class CanvasPackage : ReactPackage {
 
     override fun createViewManagers(context: ReactApplicationContext): List<ViewManager<*, *>> =
-        listOf(CanvasViewManager())
+        listOf(CanvasViewManager(), PdfCanvasViewManager(), ColorGradientViewManager())
 
     override fun createNativeModules(context: ReactApplicationContext): List<NativeModule> =
-        listOf(CanvasModule(context))
+        listOf(CanvasModule(context), PdfCanvasModule(context))
 }

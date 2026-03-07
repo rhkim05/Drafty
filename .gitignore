@@ -5,6 +5,7 @@ android/app/build/
 android/build/
 android/.gradle/
 android/app/debug.keystore
+android/local.properties
 *.apk
 *.aab
 

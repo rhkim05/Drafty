@@ -1,6 +1,6 @@
 package com.tabletnoteapp.canvas.models
 
-enum class ToolType { PEN, ERASER }
+enum class ToolType { PEN, ERASER, SELECT }
 
 data class StrokeStyle(
     val color: Int,

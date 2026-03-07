@@ -8,4 +8,6 @@ export interface Note {
   type: NoteType;
   pdfUri?: string;      // internal app storage path (only for pdf type)
   drawingUri?: string;  // path to saved strokes JSON file
+  lastPage?: number;    // last viewed page (checkpoint)
+  thumbnailUri?: string; // path to generated cover thumbnail (page 1)
 }

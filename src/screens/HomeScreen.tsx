@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   View,
   Text,
   FlatList,
+  Image,
   TouchableOpacity,
   StyleSheet,
   SafeAreaView,
@@ -10,6 +11,7 @@ import {
 } from 'react-native';
 import DocumentPicker from 'react-native-document-picker';
 import RNFS from 'react-native-fs';
+import PdfThumbnail from 'react-native-pdf-thumbnail';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNotebookStore } from '../store/useNotebookStore';
@@ -23,7 +25,25 @@ const formatDate = (ts: number) =>
 
 export default function HomeScreen() {
   const navigation = useNavigation<HomeNav>();
-  const { notes, addNote, deleteNote } = useNotebookStore();
+  const { notes, addNote, deleteNote, updateNote } = useNotebookStore();
+
+  // Retroactively generate thumbnails for PDF notes that don't have one yet
+  useEffect(() => {
+    const thumbsDir = `${RNFS.DocumentDirectoryPath}/thumbnails`;
+    notes.forEach(async (note) => {
+      if (note.type !== 'pdf' || note.thumbnailUri || !note.pdfUri) return;
+      try {
+        await RNFS.mkdir(thumbsDir);
+        const thumbPath = `${thumbsDir}/${note.id}_p1.jpg`;
+        const { uri } = await PdfThumbnail.generate(note.pdfUri, 0);
+        await RNFS.copyFile(uri, thumbPath);
+        updateNote(note.id, { thumbnailUri: thumbPath });
+      } catch {
+        // silently skip — thumbnail is optional
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // run once on mount
 
   const openNote = (note: Note) => {
     if (note.type === 'pdf') {
@@ -56,13 +76,29 @@ export default function HomeScreen() {
       const destPath = `${destDir}/${fileName}`;
       await RNFS.copyFile(result.uri, destPath);
 
+      const noteId = Date.now().toString();
+
+      // Generate cover thumbnail (page 1, 0-indexed = 0)
+      let thumbnailUri: string | undefined;
+      try {
+        const thumbsDir = `${RNFS.DocumentDirectoryPath}/thumbnails`;
+        await RNFS.mkdir(thumbsDir);
+        const thumbPath = `${thumbsDir}/${noteId}_p1.jpg`;
+        const { uri } = await PdfThumbnail.generate(destPath, 0);
+        await RNFS.copyFile(uri, thumbPath);
+        thumbnailUri = thumbPath;
+      } catch {
+        // thumbnail is optional — silently skip on failure
+      }
+
       const note: Note = {
-        id: Date.now().toString(),
+        id: noteId,
         title: result.name?.replace(/\.pdf$/i, '') ?? 'Imported PDF',
         createdAt: Date.now(),
         updatedAt: Date.now(),
         type: 'pdf',
         pdfUri: destPath,
+        thumbnailUri,
       };
       addNote(note);
     } catch (err) {
@@ -112,6 +148,13 @@ export default function HomeScreen() {
               activeOpacity={0.7}
             >
               <View style={styles.cardThumbnail}>
+                {item.thumbnailUri && (
+                  <Image
+                    source={{ uri: `file://${item.thumbnailUri}` }}
+                    style={styles.cardThumbnailImage}
+                    resizeMode="cover"
+                  />
+                )}
                 {item.type === 'pdf' && (
                   <View style={styles.pdfBadge}>
                     <Text style={styles.pdfBadgeText}>PDF</Text>
@@ -198,6 +241,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 10,
     position: 'relative',
+    overflow: 'hidden',
+  },
+  cardThumbnailImage: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 8,
   },
   pdfBadge: {
     position: 'absolute',
