@@ -309,15 +309,19 @@ class PdfDrawingView(context: Context) : View(context) {
 
     // ── Touch ─────────────────────────────────────────────────────────────────
 
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        if (event.isFromSource(android.view.InputDevice.SOURCE_MOUSE)) {
+            return onTouchEvent(event)
+        }
+        return super.onGenericMotionEvent(event)
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
         // Select mode: all input → scroll/zoom
         if (currentTool == ToolType.SELECT) return handleScroll(event)
 
-        // Draw mode: stylus/eraser-end → draw, finger → scroll/zoom
-        val firstToolType = event.getToolType(0)
-        val isStylusInput = firstToolType == MotionEvent.TOOL_TYPE_STYLUS
-                         || firstToolType == MotionEvent.TOOL_TYPE_ERASER
-        return if (isStylusInput) handleDraw(event) else handleScroll(event)
+        // Draw mode: all input draws (finger scroll only available via SELECT tool)
+        return handleDraw(event)
     }
 
     private fun handleScroll(event: MotionEvent): Boolean {
