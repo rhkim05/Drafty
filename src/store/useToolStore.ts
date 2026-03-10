@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { ToolMode } from '../types/canvasTypes';
+import { EraserMode, ToolMode } from '../types/canvasTypes';
 
 const DEFAULT_PRESETS = [
   '#000000', '#E53935', '#FB8C00', '#FDD835', '#43A047',
@@ -12,6 +12,7 @@ interface ToolState {
   canRedo: boolean;
   penThickness: number;
   eraserThickness: number;
+  eraserMode: EraserMode;
   penColor: string;
   presetColors: string[];
   setTool: (tool: ToolMode) => void;
@@ -19,6 +20,7 @@ interface ToolState {
   setCanRedo: (value: boolean) => void;
   setPenThickness: (value: number) => void;
   setEraserThickness: (value: number) => void;
+  setEraserMode: (mode: EraserMode) => void;
   setPenColor: (color: string) => void;
   setPresetColor: (index: number, color: string) => void;
 }
@@ -29,6 +31,7 @@ export const useToolStore = create<ToolState>(set => ({
   canRedo: false,
   penThickness: 4,
   eraserThickness: 24,
+  eraserMode: 'pixel',
   penColor: '#000000',
   presetColors: DEFAULT_PRESETS,
   setTool: (tool) => set({ activeTool: tool }),
@@ -36,6 +39,7 @@ export const useToolStore = create<ToolState>(set => ({
   setCanRedo: (value) => set({ canRedo: value }),
   setPenThickness: (value) => set({ penThickness: value }),
   setEraserThickness: (value) => set({ eraserThickness: value }),
+  setEraserMode: (mode) => set({ eraserMode: mode }),
   setPenColor: (color) => set({ penColor: color }),
   setPresetColor: (index, color) => set(state => {
     const updated = [...state.presetColors];

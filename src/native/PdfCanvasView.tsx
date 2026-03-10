@@ -8,6 +8,7 @@ interface PdfCanvasViewProps {
   penColor: string;
   penThickness: number;
   eraserThickness: number;
+  eraserMode: string;
   style?: StyleProp<ViewStyle>;
   onLayout?: () => void;
 }

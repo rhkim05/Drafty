@@ -62,4 +62,9 @@ class PdfCanvasViewManager : SimpleViewManager<PdfDrawingView>() {
     fun setEraserThickness(view: PdfDrawingView, thickness: Float) {
         view.eraserThickness = thickness
     }
+
+    @ReactProp(name = "eraserMode")
+    fun setEraserMode(view: PdfDrawingView, mode: String?) {
+        view.eraserMode = mode ?: "pixel"
+    }
 }

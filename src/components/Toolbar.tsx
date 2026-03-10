@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { View, TouchableOpacity, Text, StyleSheet, Modal } from 'react-native';
 import { useToolStore } from '../store/useToolStore';
 import ThicknessSlider from './ThicknessSlider';
@@ -17,19 +17,64 @@ interface ToolbarProps {
 export default function Toolbar({ onUndo, onRedo, onToggleStrip, showHandTool, currentPage, totalPages, showStrip }: ToolbarProps) {
   const {
     activeTool, canUndo, canRedo,
-    penThickness, eraserThickness,
+    penThickness, eraserThickness, eraserMode,
     penColor, presetColors,
     setTool, setCanUndo: _cu, setCanRedo: _cr,
-    setPenThickness, setEraserThickness,
+    setPenThickness, setEraserThickness, setEraserMode,
     setPenColor, setPresetColor,
   } = useToolStore();
 
+  const [penExpanded, setPenExpanded] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [pickerKey, setPickerKey] = useState(0);
+  const [popupPos, setPopupPos] = useState({ top: 60, left: 0 });
+
+  const [eraserExpanded, setEraserExpanded] = useState(false);
+  const [eraserPopupPos, setEraserPopupPos] = useState({ top: 60, left: 0 });
+
+  const penBtnRef    = useRef<TouchableOpacity>(null);
+  const eraserBtnRef = useRef<TouchableOpacity>(null);
 
   const isPen    = activeTool === 'pen';
   const isEraser = activeTool === 'eraser';
-  const isDrawMode = isPen || isEraser;
+
+  const closePenPopup = () => {
+    setPenExpanded(false);
+    setShowColorPicker(false);
+  };
+
+  const closeEraserPopup = () => setEraserExpanded(false);
+
+  const handleEraserPress = () => {
+    if (isEraser) {
+      if (!eraserExpanded) {
+        eraserBtnRef.current?.measureInWindow((x, y, _w, h) => {
+          setEraserPopupPos({ top: y + h + 6, left: x });
+        });
+      }
+      setEraserExpanded(v => !v);
+    } else {
+      setTool('eraser');
+      closeEraserPopup();
+      closePenPopup();
+    }
+  };
+
+  const handlePenPress = () => {
+    if (isPen) {
+      if (!penExpanded) {
+        penBtnRef.current?.measureInWindow((x, y, _w, h) => {
+          setPopupPos({ top: y + h + 6, left: x });
+        });
+      }
+      setPenExpanded(v => !v);
+      setShowColorPicker(false);
+    } else {
+      setTool('pen');
+      closePenPopup();
+      closeEraserPopup();
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -52,7 +97,7 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, showHandTool, c
       {showHandTool && (
         <TouchableOpacity
           style={[styles.button, activeTool === 'select' && styles.buttonActive]}
-          onPress={() => setTool('select')}
+          onPress={() => { setTool('select'); closePenPopup(); closeEraserPopup(); }}
         >
           <Text style={styles.buttonIcon}>✋</Text>
           <Text style={[styles.buttonLabel, activeTool === 'select' && styles.buttonLabelActive]}>
@@ -65,51 +110,24 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, showHandTool, c
 
       {/* ── Draw tools ── */}
       <TouchableOpacity
+        ref={penBtnRef}
         style={[styles.button, isPen && styles.buttonActive]}
-        onPress={() => setTool('pen')}
+        onPress={handlePenPress}
       >
         <Text style={styles.buttonIcon}>✏️</Text>
         <Text style={[styles.buttonLabel, isPen && styles.buttonLabelActive]}>Pen</Text>
       </TouchableOpacity>
 
-      {/* Color swatch — only visible when pen is active */}
-      {isPen && (
-        <TouchableOpacity
-          style={[styles.colorBtn, { backgroundColor: penColor }]}
-          onPress={() => { setPickerKey(k => k + 1); setShowColorPicker(v => !v); }}
-        />
-      )}
-
       <TouchableOpacity
+        ref={eraserBtnRef}
         style={[styles.button, isEraser && styles.buttonActive]}
-        onPress={() => setTool('eraser')}
+        onPress={handleEraserPress}
       >
         <Text style={styles.buttonIcon}>⬜</Text>
         <Text style={[styles.buttonLabel, isEraser && styles.buttonLabelActive]}>Eraser</Text>
       </TouchableOpacity>
 
-      {/* ── Thickness slider (shown when a draw tool is active) ── */}
-      {isDrawMode && (
-        <>
-          <View style={styles.divider} />
-          {isPen
-            ? <ThicknessSlider
-                value={penThickness}
-                min={1} max={30}
-                color="#1A1A1A"
-                onChange={setPenThickness}
-              />
-            : <ThicknessSlider
-                value={eraserThickness}
-                min={10} max={100}
-                color="eraser"
-                onChange={setEraserThickness}
-              />
-          }
-        </>
-      )}
-
-      {isDrawMode && (
+      {(isPen || isEraser) && (
         <View style={styles.fingerHint}>
           <Text style={styles.fingerHintText}>👆 finger scrolls</Text>
         </View>
@@ -143,16 +161,77 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, showHandTool, c
         </>
       )}
 
-      {/* ── Color picker modal ── */}
-      <Modal visible={showColorPicker} transparent animationType="fade" onRequestClose={() => setShowColorPicker(false)}>
-        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setShowColorPicker(false)} activeOpacity={1} />
-        <View style={styles.pickerAnchor}>
-          <ColorPickerPanel
-            key={pickerKey}
-            color={penColor}
-            presetColors={presetColors}
-            onColorChange={setPenColor}
-            onPresetSave={(i, c) => setPresetColor(i, c)}
+      {/* ── Pen options popup ── */}
+      <Modal
+        visible={isPen && penExpanded}
+        transparent
+        animationType="fade"
+        onRequestClose={closePenPopup}
+      >
+        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={closePenPopup} activeOpacity={1} />
+
+        {/* Color swatch + thickness card */}
+        <View style={[styles.penPopup, { top: popupPos.top, left: popupPos.left }]}>
+          <TouchableOpacity
+            style={[styles.colorBtn, { backgroundColor: penColor }]}
+            onPress={() => { setPickerKey(k => k + 1); setShowColorPicker(v => !v); }}
+          />
+          <View style={styles.popupDivider} />
+          <ThicknessSlider
+            value={penThickness}
+            min={1} max={30}
+            color="#1A1A1A"
+            onChange={setPenThickness}
+          />
+        </View>
+
+        {/* Color picker — shown below the card when color swatch is tapped */}
+        {showColorPicker && (
+          <View style={[styles.pickerAnchor, { top: popupPos.top + 52, left: popupPos.left }]}>
+            <ColorPickerPanel
+              key={pickerKey}
+              color={penColor}
+              presetColors={presetColors}
+              onColorChange={setPenColor}
+              onPresetSave={(i, c) => setPresetColor(i, c)}
+            />
+          </View>
+        )}
+      </Modal>
+
+      {/* ── Eraser options popup ── */}
+      <Modal
+        visible={isEraser && eraserExpanded}
+        transparent
+        animationType="fade"
+        onRequestClose={closeEraserPopup}
+      >
+        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={closeEraserPopup} activeOpacity={1} />
+
+        <View style={[styles.penPopup, { top: eraserPopupPos.top, left: eraserPopupPos.left }]}>
+          {/* Mode selector */}
+          <TouchableOpacity
+            style={[styles.eraserModeBtn, eraserMode === 'pixel' && styles.eraserModeBtnActive]}
+            onPress={() => setEraserMode('pixel')}
+          >
+            <Text style={[styles.eraserModeText, eraserMode === 'pixel' && styles.eraserModeTextActive]}>
+              픽셀
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.eraserModeBtn, eraserMode === 'stroke' && styles.eraserModeBtnActive]}
+            onPress={() => setEraserMode('stroke')}
+          >
+            <Text style={[styles.eraserModeText, eraserMode === 'stroke' && styles.eraserModeTextActive]}>
+              획
+            </Text>
+          </TouchableOpacity>
+          <View style={styles.popupDivider} />
+          <ThicknessSlider
+            value={eraserThickness}
+            min={10} max={100}
+            color="eraser"
+            onChange={setEraserThickness}
           />
         </View>
       </Modal>
@@ -216,12 +295,6 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 2,
     borderColor: '#CCCCCC',
-    marginLeft: 2,
-  },
-  pickerAnchor: {
-    position: 'absolute',
-    top: 56,   // below header + toolbar
-    left: 140, // roughly under the pen/color area
   },
   fingerHint: {
     marginLeft: 4,
@@ -236,5 +309,50 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#444',
     paddingHorizontal: 8,
+  },
+  // Pen popup
+  penPopup: {
+    position: 'absolute',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: '#E0E0D8',
+  },
+  popupDivider: {
+    width: 1,
+    height: 20,
+    backgroundColor: '#E0E0D8',
+  },
+  pickerAnchor: {
+    position: 'absolute',
+  },
+  eraserModeBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: '#D0D0C8',
+  },
+  eraserModeBtnActive: {
+    backgroundColor: '#1A1A1A',
+    borderColor: '#1A1A1A',
+  },
+  eraserModeText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#444',
+  },
+  eraserModeTextActive: {
+    color: '#FFFFFF',
   },
 });

@@ -55,4 +55,9 @@ class CanvasViewManager : SimpleViewManager<DrawingCanvas>() {
     fun setEraserThickness(view: DrawingCanvas, thickness: Float) {
         view.eraserThickness = thickness
     }
+
+    @ReactProp(name = "eraserMode")
+    fun setEraserMode(view: DrawingCanvas, mode: String?) {
+        view.eraserMode = mode ?: "pixel"
+    }
 }
