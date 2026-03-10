@@ -76,14 +76,19 @@ tablet-note-app/
 │   └── app/
 │       └── src/main/java/com/tabletnoteapp/
 │           ├── canvas/                    # Pure drawing engine (no RN dependency)
-│           │   ├── DrawingCanvas.kt       # Custom View: touch events + rendering
+│           │   ├── DrawingCanvas.kt       # Custom View: touch events + rendering (blank notes)
+│           │   ├── PdfDrawingView.kt      # Custom View: PDF rendering + drawing overlay
+│           │   ├── ColorGradientView.kt   # Native HSV color picker gradient view
 │           │   ├── models/Stroke.kt
 │           │   ├── models/Point.kt        # Point (x, y, pressure)
 │           │   └── utils/BezierSmoother.kt
 │           └── reactbridge/               # RN <-> Kotlin bridge
 │               ├── CanvasViewManager.kt
 │               ├── CanvasModule.kt
-│               └── CanvasPackage.kt
+│               ├── CanvasPackage.kt
+│               ├── PdfCanvasViewManager.kt
+│               ├── PdfCanvasModule.kt
+│               └── ColorGradientViewManager.kt
 └── src/
     ├── screens/
     │   ├── HomeScreen.tsx         # Note grid, PDF import button
@@ -91,16 +96,21 @@ tablet-note-app/
     │   └── NoteEditorScreen.tsx   # Blank drawing canvas screen
     ├── store/
     │   ├── useNotebookStore.ts    # Notes list with AsyncStorage persistence
-    │   ├── useToolStore.ts        # Active tool state (pen/eraser/select), undo/redo
+    │   ├── useToolStore.ts        # Active tool state (pen/eraser/select), undo/redo, color/thickness
     │   └── useEditorStore.ts      # (stub) Current page, zoom
     ├── navigation/
     │   └── index.tsx              # NavigationContainer + RootStackParamList
     ├── native/                    # Bridge wrappers
     │   ├── CanvasView.tsx         # requireNativeComponent wrapper with forwardRef
-    │   └── CanvasModule.ts        # undo/redo/clear/getStrokes/loadStrokes
+    │   ├── CanvasModule.ts        # undo/redo/clear/getStrokes/loadStrokes
+    │   ├── PdfCanvasView.tsx      # requireNativeComponent wrapper for PdfDrawingView
+    │   ├── PdfCanvasModule.ts     # undo/redo/clear/getStrokes/loadStrokes/scrollToPage
+    │   └── ColorGradientView.tsx  # Native HSV gradient picker with batched event coalescing
     ├── components/
-    │   ├── Toolbar.tsx            # (stub)
-    │   └── ColorPicker.tsx        # (stub)
+    │   ├── Toolbar.tsx            # Full toolbar: tool switching, undo/redo, color/thickness
+    │   ├── ColorPickerPanel.tsx   # HSV color picker using ColorGradientView + preset swatches
+    │   ├── ThicknessSlider.tsx    # PanResponder-based slider for pen/eraser thickness
+    │   └── ThumbnailStrip.tsx     # PDF page thumbnail strip using react-native-pdf-thumbnail
     └── types/
         ├── noteTypes.ts           # Note, NoteType
         └── canvasTypes.ts         # PenColor, ToolMode, StrokeStyle
@@ -114,19 +124,24 @@ Uses `@react-navigation/native-stack`. All three routes are wired and active: `H
 
 ### Drawing Engine
 
-The Kotlin drawing engine in `android/.../canvas/` is fully active. `DrawingCanvas.kt` is a custom `View` that handles touch events and renders via Android Canvas — no RN bridge involvement during drawing. Key details:
+There are **two separate native drawing views** — both follow the same patterns but serve different purposes:
 
-- Uses an off-screen `Bitmap` to cache committed strokes; only the active in-progress stroke is replayed each `onDraw`.
+- **`DrawingCanvas.kt`** — used in `NoteEditorScreen` (blank notes), exposed as `"CanvasView"`.
+- **`PdfDrawingView.kt`** — used in `PdfViewerScreen`, handles PDF rendering + drawing overlay, exposed as `"PdfCanvasView"`. Adds `scrollToPage` command.
+
+Both views share these implementation details:
+- Off-screen `Bitmap` caches committed strokes; only the active in-progress stroke is replayed each `onDraw`.
 - Eraser uses `PorterDuff.Mode.CLEAR` — requires `LAYER_TYPE_SOFTWARE` (hardware acceleration breaks it).
-- Undo replays all committed strokes onto a fresh bitmap; redo appends the restored stroke to the existing bitmap.
-- After each stroke commit or undo/redo, Kotlin emits a `canvasUndoRedoState` device event `{ canUndo, canRedo }`. `CanvasView.tsx` subscribes via `DeviceEventEmitter` and syncs `useToolStore`.
+- Undo replays all committed strokes onto a fresh bitmap; redo appends the restored stroke.
+- After each stroke commit or undo/redo, Kotlin emits a `canvasUndoRedoState` device event `{ canUndo, canRedo }`. The respective native view wrapper in `src/native/` subscribes via `DeviceEventEmitter` and syncs `useToolStore`.
 
 ### Bridge (`reactbridge/` ↔ `src/native/`)
 
-- **`CanvasViewManager.kt`** — exposes `DrawingCanvas` as native view `"CanvasView"`. Props: `tool`, `penColor`, `penThickness`, `eraserThickness`.
-- **`CanvasModule.kt`** — imperative commands via view tag from `findNodeHandle`: `undo`, `redo`, `clear`, `getStrokes` (async, returns JSON string), `loadStrokes`.
-- **`src/native/CanvasView.tsx`** — `requireNativeComponent` wrapper with `forwardRef`; owns the `DeviceEventEmitter` subscription for undo/redo state.
-- **`src/native/CanvasModule.ts`** — thin JS wrapper over `NativeModules.CanvasModule`.
+- **`CanvasViewManager.kt`** / **`PdfCanvasViewManager.kt`** — expose `DrawingCanvas`/`PdfDrawingView` as native views. Props: `tool`, `penColor`, `penThickness`, `eraserThickness` (PdfCanvasView also accepts `pdfUri`).
+- **`CanvasModule.kt`** / **`PdfCanvasModule.kt`** — imperative commands via view tag from `findNodeHandle`: `undo`, `redo`, `clear`, `getStrokes` (async, returns JSON string), `loadStrokes`. `PdfCanvasModule` also has `scrollToPage(viewTag, page)`.
+- **`ColorGradientViewManager.kt`** — exposes `ColorGradientView` as native view `"ColorGradientView"`. Props: `hue`, `sat`, `brightness`. Emits `colorPickerSVChange` and `colorPickerHueChange` device events.
+- **`src/native/CanvasView.tsx`** / **`src/native/PdfCanvasView.tsx`** — `requireNativeComponent` wrappers with `forwardRef`; own the `DeviceEventEmitter` subscription for undo/redo state.
+- **`src/native/ColorGradientView.tsx`** — wraps the native gradient view; coalesces rapid `colorPickerSVChange`/`colorPickerHueChange` events to avoid flooding React with updates.
 
 ### Stroke Persistence
 
@@ -143,7 +158,7 @@ Both `NoteEditorScreen` and `PdfViewerScreen` use the same pattern:
 ### State Management
 
 - **`useNotebookStore`** — persists `Note[]` via zustand `persist` + AsyncStorage (key: `notebook-store`). `Note` type in `src/types/noteTypes.ts` includes optional `drawingUri`.
-- **`useToolStore`** — in-memory only. Holds `activeTool` (pen/eraser/select), `canUndo`, `canRedo`. Updated by `CanvasView`'s `DeviceEventEmitter` listener.
+- **`useToolStore`** — in-memory only. Holds `activeTool` (pen/eraser/select), `canUndo`, `canRedo`, `penColor`, `penThickness`, `eraserThickness`, `presetColors`. Updated by native view `DeviceEventEmitter` listeners.
 
 ### Known Dependency Quirks
 
@@ -153,6 +168,7 @@ Both `NoteEditorScreen` and `PdfViewerScreen` use the same pattern:
 - `react-native-blob-util@0.19.11` (0.21+ breaks)
 - `@react-navigation/native@6.x` + `@react-navigation/native-stack@6.x` (v7 requires screens 4.x)
 - `@react-native-async-storage/async-storage@1.23.1` (v2+ requires Kotlin 2.1.0 via KSP; project uses Kotlin 1.8.0)
+- `react-native-gesture-handler@~2.14.0` + `react-native-reanimated@~3.6.0` (required by navigation; do not upgrade independently)
 
 ### Git / GitHub
 
