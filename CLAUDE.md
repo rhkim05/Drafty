@@ -9,6 +9,7 @@ A tablet note-taking app ("Goodnotes + Parallel Pages"). Built with a **hybrid R
 ## Commands
 
 **macOS:**
+
 ```bash
 npm install --legacy-peer-deps
 npx react-native start          # Terminal 1 — Metro bundler
@@ -17,6 +18,7 @@ npx tsc --noEmit                # TypeScript check
 ```
 
 **Windows:**
+
 ```cmd
 npm install --legacy-peer-deps
 .\node_modules\.bin\react-native start
@@ -49,6 +51,7 @@ sdk.dir=C\:\\Users\\<you>\\AppData\\Local\\Android\\Sdk
 ```
 
 Other build constraints:
+
 - Gradle wrapper: 8.3, AGP: 8.1.1. Do not upgrade — RN 0.73's Gradle plugin has Kotlin warnings that become errors under Gradle 8.11+.
 - `androidx.core` and `androidx.transition` are pinned in `android/build.gradle` via `resolutionStrategy` to stay within `compileSdk 34`.
 - The `native_modules.gradle` path in `android/settings.gradle` and `android/app/build.gradle` points to `node_modules/react-native/node_modules/@react-native-community/cli-platform-android/` (not root `node_modules/`) due to npm hoisting.
@@ -130,6 +133,7 @@ There are **two separate native drawing views** — both follow the same pattern
 - **`PdfDrawingView.kt`** — used in `PdfViewerScreen`, handles PDF rendering + drawing overlay, exposed as `"PdfCanvasView"`. Adds `scrollToPage` command.
 
 Both views share these implementation details:
+
 - Off-screen `Bitmap` caches committed strokes; only the active in-progress stroke is replayed each `onDraw`.
 - Eraser uses `PorterDuff.Mode.CLEAR` — requires `LAYER_TYPE_SOFTWARE` (hardware acceleration breaks it).
 - Undo replays all committed strokes onto a fresh bitmap; redo appends the restored stroke.
@@ -146,6 +150,7 @@ Both views share these implementation details:
 ### Stroke Persistence
 
 Both `NoteEditorScreen` and `PdfViewerScreen` use the same pattern:
+
 - **Save** (`beforeRemove` navigation event): `getStrokes(tag)` → write JSON to `DocumentDirectoryPath/drawings/<noteId>.json` → `updateNote` stores the path in `note.drawingUri`.
 - **Load** (canvas layout callback): if `note.drawingUri` exists, read the file and call `loadStrokes(tag, json)`.
 
@@ -163,12 +168,12 @@ Both `NoteEditorScreen` and `PdfViewerScreen` use the same pattern:
 ### Known Dependency Quirks
 
 **Do not upgrade these packages** — pinned to last versions compatible with RN 0.73 (which lacks `BaseReactPackage`):
+
 - `react-native-screens@3.35.0` (3.36+ breaks)
 - `react-native-safe-area-context@4.10.0` (4.11+ breaks)
 - `react-native-blob-util@0.19.11` (0.21+ breaks)
 - `@react-navigation/native@6.x` + `@react-navigation/native-stack@6.x` (v7 requires screens 4.x)
 - `@react-native-async-storage/async-storage@1.23.1` (v2+ requires Kotlin 2.1.0 via KSP; project uses Kotlin 1.8.0)
-- `react-native-gesture-handler@~2.14.0` + `react-native-reanimated@~3.6.0` (required by navigation; do not upgrade independently)
 
 ### Git / GitHub
 

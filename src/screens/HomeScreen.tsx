@@ -8,6 +8,7 @@ import {
   StyleSheet,
   SafeAreaView,
   Alert,
+  AlertButton,
   Modal,
   TextInput,
   KeyboardAvoidingView,
@@ -40,6 +41,7 @@ export default function HomeScreen() {
   const navigation = useNavigation<HomeNav>();
   const { notes, categories, addNote, deleteNote, updateNote, addCategory } = useNotebookStore();
 
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState('all');
   const [moveCategoryTarget, setMoveCategoryTarget] = useState<Note | null>(null);
 
@@ -137,7 +139,7 @@ export default function HomeScreen() {
   const [renameText, setRenameText] = useState('');
 
   const onLongPress = (note: Note) => {
-    const actions: Alert.AlertButton[] = [
+    const actions: AlertButton[] = [
       { text: 'Rename', onPress: () => { setRenameText(note.title); setRenameTarget({ id: note.id, title: note.title }); } },
       { text: 'Delete', style: 'destructive', onPress: () =>
         Alert.alert('Delete', `Delete "${note.title}"?`, [
@@ -168,9 +170,23 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Main content — full width, sidebar overlays it */}
-      <View style={{ flex: 1 }}>
+      <View style={styles.row}>
+        {/* Sidebar — flex child, pushes content right when open */}
+        <Sidebar
+          open={sidebarOpen}
+          categories={categories}
+          selectedCategoryId={selectedCategoryId}
+          onSelectCategory={setSelectedCategoryId}
+          onAddCategory={addCategory}
+          onClose={() => setSidebarOpen(false)}
+        />
+
+        {/* Main content */}
+        <View style={{ flex: 1 }}>
         <View style={styles.header}>
+          <TouchableOpacity style={styles.menuBtn} onPress={() => setSidebarOpen(o => !o)}>
+            <Text style={styles.menuIcon}>≡</Text>
+          </TouchableOpacity>
           <Text style={styles.title}>My Notes</Text>
           <View style={styles.headerButtons}>
             <TouchableOpacity style={styles.importButton} onPress={importPdf}>
@@ -220,15 +236,8 @@ export default function HomeScreen() {
             )}
           />
         )}
+        </View>
       </View>
-
-      {/* Sidebar — position absolute, overlays main content */}
-      <Sidebar
-        categories={categories}
-        selectedCategoryId={selectedCategoryId}
-        onSelectCategory={setSelectedCategoryId}
-        onAddCategory={addCategory}
-      />
 
       {/* Rename Modal */}
       <Modal visible={!!renameTarget} transparent animationType="fade" onRequestClose={() => setRenameTarget(null)}>
@@ -315,20 +324,36 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F5F5F0',
   },
+  row: {
+    flex: 1,
+    flexDirection: 'row',
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 24,
+    paddingHorizontal: 16,
     paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0D8',
     backgroundColor: '#FFFFFF',
   },
+  menuBtn: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  menuIcon: {
+    fontSize: 22,
+    color: '#1A1A1A',
+  },
   title: {
     fontSize: 28,
     fontWeight: '700',
     color: '#1A1A1A',
+    flex: 1,
   },
   headerButtons: {
     flexDirection: 'row',
