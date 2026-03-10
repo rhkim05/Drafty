@@ -15,3 +15,9 @@ data class Stroke(
     fun addPoint(point: Point) = points.add(point)
     val isEmpty get() = points.isEmpty()
 }
+
+sealed class UndoAction {
+    data class AddStroke(val stroke: Stroke) : UndoAction()
+    // entries: (originalIndex, stroke) — index in committedStrokes at gesture-start snapshot
+    data class EraseStrokes(val entries: List<Pair<Int, Stroke>>) : UndoAction()
+}

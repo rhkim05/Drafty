@@ -14,6 +14,7 @@ import com.tabletnoteapp.canvas.models.Point
 import com.tabletnoteapp.canvas.models.Stroke
 import com.tabletnoteapp.canvas.models.StrokeStyle
 import com.tabletnoteapp.canvas.models.ToolType
+import com.tabletnoteapp.canvas.models.UndoAction
 import com.tabletnoteapp.canvas.utils.BezierSmoother
 import org.json.JSONArray
 import org.json.JSONObject
@@ -120,14 +121,18 @@ class PdfDrawingView(context: Context) : View(context) {
 
     // ── Drawing ───────────────────────────────────────────────────────────────
 
-    private val committedStrokes = mutableListOf<Stroke>()
-    private val redoStack        = mutableListOf<Stroke>()
+    private val committedStrokes   = mutableListOf<Stroke>()
+    private val undoStack          = mutableListOf<UndoAction>()
+    private val redoStack          = mutableListOf<UndoAction>()
     private var activeStroke: Stroke? = null
+    private val strokeEraserBuffer = mutableListOf<Pair<Int, Stroke>>()
+    private var strokeOriginalIndexMap: Map<Stroke, Int> = emptyMap()
 
     var currentTool:      ToolType = ToolType.SELECT
     var penColor:         Int      = Color.BLACK
     var penThickness:     Float    = 4f
     var eraserThickness:  Float    = 24f
+    var eraserMode:       String   = "pixel"   // "pixel" | "stroke"
 
     private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
@@ -136,6 +141,19 @@ class PdfDrawingView(context: Context) : View(context) {
         style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
         xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
     }
+    private val strokeEraserFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.argb(55, 150, 150, 150)
+    }
+    private val strokeEraserBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 2f
+        color = Color.argb(170, 90, 90, 90)
+    }
+
+    private var eraserCursorX = 0f
+    private var eraserCursorY = 0f
+    private var showEraserCursor = false
     private val pageBgPaint = Paint().apply { color = Color.WHITE }
     private val scrollbarActivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(220, 120, 120, 120)
@@ -299,6 +317,15 @@ class PdfDrawingView(context: Context) : View(context) {
         // 3. Scrollbar (screen coords, outside transform)
         drawScrollbar(canvas)
 
+        // 4. Eraser cursor (screen coords, outside transform)
+        if (showEraserCursor) {
+            // pixel eraser: strokeWidth is in logical coords → screen radius = thickness * scale / 2
+            // stroke eraser: hit-test radius is already in screen px = eraserThickness
+            val r = if (eraserMode == "stroke") eraserThickness else eraserThickness * scale / 2f
+            canvas.drawCircle(eraserCursorX, eraserCursorY, r, strokeEraserFillPaint)
+            canvas.drawCircle(eraserCursorX, eraserCursorY, r, strokeEraserBorderPaint)
+        }
+
         if (!scroller.isFinished) postInvalidateOnAnimation()
     }
 
@@ -429,10 +456,43 @@ class PdfDrawingView(context: Context) : View(context) {
         val yDoc = toLogicalY(event.y)
         val pressure = event.pressure.coerceIn(0f, 1f)
 
+        // Stroke-eraser: remove whole strokes on touch instead of drawing an erase path
+        if (currentTool == ToolType.ERASER && eraserMode == "stroke") {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    redoStack.clear()
+                    strokeEraserBuffer.clear()
+                    strokeOriginalIndexMap = committedStrokes.mapIndexed { i, s -> s to i }.toMap()
+                    eraserCursorX = event.x; eraserCursorY = event.y; showEraserCursor = true
+                    eraseStrokesAtPoint(xDoc, yDoc)
+                    notifyUndoRedoState(); invalidate()
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    eraserCursorX = event.x; eraserCursorY = event.y
+                    eraseStrokesAtPoint(xDoc, yDoc); invalidate()
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    showEraserCursor = false
+                    if (strokeEraserBuffer.isNotEmpty()) {
+                        undoStack.add(UndoAction.EraseStrokes(strokeEraserBuffer.toList()))
+                        strokeEraserBuffer.clear()
+                        strokeOriginalIndexMap = emptyMap()
+                    }
+                    notifyUndoRedoState(); invalidate()
+                }
+            }
+            return true
+        }
+
+        // Pixel-eraser / pen
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 parent?.requestDisallowInterceptTouchEvent(true)
                 redoStack.clear()
+                if (currentTool == ToolType.ERASER) {
+                    eraserCursorX = event.x; eraserCursorY = event.y; showEraserCursor = true
+                }
                 val style = StrokeStyle(
                     color     = if (currentTool == ToolType.ERASER) Color.TRANSPARENT else penColor,
                     thickness = if (currentTool == ToolType.ERASER) eraserThickness else penThickness,
@@ -442,18 +502,61 @@ class PdfDrawingView(context: Context) : View(context) {
                 notifyUndoRedoState(); invalidate()
             }
             MotionEvent.ACTION_MOVE -> {
+                if (currentTool == ToolType.ERASER) {
+                    eraserCursorX = event.x; eraserCursorY = event.y
+                }
                 activeStroke?.addPoint(Point(xDoc, yDoc, pressure)); invalidate()
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                showEraserCursor = false
                 activeStroke?.let { s ->
                     s.addPoint(Point(xDoc, yDoc, pressure))
-                    if (!s.isEmpty) committedStrokes.add(s)
+                    if (!s.isEmpty) {
+                        committedStrokes.add(s)
+                        undoStack.add(UndoAction.AddStroke(s))
+                    }
                     activeStroke = null; notifyUndoRedoState()
                 }
                 invalidate()
             }
         }
         return true
+    }
+
+    private fun eraseStrokesAtPoint(xDoc: Float, yDoc: Float) {
+        val threshold = eraserThickness / scale
+        val thresholdSq = threshold * threshold
+        val toRemove = committedStrokes.filter { it.style.tool != ToolType.ERASER && strokeHitsPoint(it, xDoc, yDoc, thresholdSq) }
+        if (toRemove.isNotEmpty()) {
+            committedStrokes.removeAll(toRemove.toSet())
+            toRemove.forEach { stroke ->
+                val origIdx = strokeOriginalIndexMap[stroke] ?: 0
+                strokeEraserBuffer.add(origIdx to stroke)
+            }
+        }
+    }
+
+    private fun strokeHitsPoint(stroke: Stroke, x: Float, y: Float, thresholdSq: Float): Boolean {
+        val pts = stroke.points
+        if (pts.isEmpty()) return false
+        if (pts.size == 1) {
+            val dx = pts[0].x - x; val dy = pts[0].y - y
+            return dx * dx + dy * dy <= thresholdSq
+        }
+        for (i in 0 until pts.size - 1) {
+            if (segmentDistSq(x, y, pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y) <= thresholdSq) return true
+        }
+        return false
+    }
+
+    private fun segmentDistSq(px: Float, py: Float, ax: Float, ay: Float, bx: Float, by: Float): Float {
+        val dx = bx - ax; val dy = by - ay
+        val lenSq = dx * dx + dy * dy
+        if (lenSq == 0f) { val ex = px - ax; val ey = py - ay; return ex * ex + ey * ey }
+        val t = ((px - ax) * dx + (py - ay) * dy).div(lenSq).coerceIn(0f, 1f)
+        val cx = ax + t * dx; val cy = ay + t * dy
+        val ex = px - cx; val ey = py - cy
+        return ex * ex + ey * ey
     }
 
     override fun computeScroll() {
@@ -466,19 +569,31 @@ class PdfDrawingView(context: Context) : View(context) {
     // ── Undo / Redo / Clear ───────────────────────────────────────────────────
 
     fun undo() {
-        if (committedStrokes.isEmpty()) return
-        redoStack.add(committedStrokes.removeLast())
+        val action = undoStack.removeLastOrNull() ?: return
+        when (action) {
+            is UndoAction.AddStroke -> committedStrokes.remove(action.stroke)
+            is UndoAction.EraseStrokes -> {
+                for ((idx, stroke) in action.entries.sortedByDescending { it.first }) {
+                    committedStrokes.add(idx.coerceIn(0, committedStrokes.size), stroke)
+                }
+            }
+        }
+        redoStack.add(action)
         notifyUndoRedoState(); invalidate()
     }
 
     fun redo() {
-        if (redoStack.isEmpty()) return
-        committedStrokes.add(redoStack.removeLast())
+        val action = redoStack.removeLastOrNull() ?: return
+        when (action) {
+            is UndoAction.AddStroke    -> committedStrokes.add(action.stroke)
+            is UndoAction.EraseStrokes -> committedStrokes.removeAll(action.entries.map { it.second }.toSet())
+        }
+        undoStack.add(action)
         notifyUndoRedoState(); invalidate()
     }
 
     fun clearCanvas() {
-        committedStrokes.clear(); redoStack.clear()
+        committedStrokes.clear(); undoStack.clear(); redoStack.clear()
         notifyUndoRedoState(); invalidate()
     }
 
@@ -501,7 +616,7 @@ class PdfDrawingView(context: Context) : View(context) {
     }
 
     fun loadStrokesJson(json: String) {
-        committedStrokes.clear(); redoStack.clear()
+        committedStrokes.clear(); undoStack.clear(); redoStack.clear()
         val arr = JSONArray(json)
         for (i in 0 until arr.length()) {
             val obj  = arr.getJSONObject(i)
@@ -548,7 +663,7 @@ class PdfDrawingView(context: Context) : View(context) {
     }
 
     private fun notifyUndoRedoState() {
-        onUndoRedoStateChanged?.invoke(committedStrokes.isNotEmpty(), redoStack.isNotEmpty())
+        onUndoRedoStateChanged?.invoke(undoStack.isNotEmpty(), redoStack.isNotEmpty())
     }
 
     override fun onDetachedFromWindow() {
