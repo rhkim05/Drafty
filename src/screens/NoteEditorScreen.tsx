@@ -26,6 +26,7 @@ export default function NoteEditorScreen({ route, navigation }: Props) {
   const activeTool      = useToolStore(s => s.activeTool);
   const penThickness    = useToolStore(s => s.penThickness);
   const eraserThickness = useToolStore(s => s.eraserThickness);
+  const eraserMode      = useToolStore(s => s.eraserMode);
   const penColor        = useToolStore(s => s.penColor);
   const updateNote = useNotebookStore(s => s.updateNote);
 
@@ -85,6 +86,7 @@ export default function NoteEditorScreen({ route, navigation }: Props) {
         penColor={penColor}
         penThickness={penThickness}
         eraserThickness={eraserThickness}
+        eraserMode={eraserMode}
         style={styles.canvas}
         onLayout={handleLayout}
       />

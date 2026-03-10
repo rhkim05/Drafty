@@ -15,3 +15,8 @@ data class Stroke(
     fun addPoint(point: Point) = points.add(point)
     val isEmpty get() = points.isEmpty()
 }
+
+sealed class UndoAction {
+    data class AddStroke(val stroke: Stroke) : UndoAction()
+    data class EraseStrokes(val strokes: List<Stroke>) : UndoAction()
+}

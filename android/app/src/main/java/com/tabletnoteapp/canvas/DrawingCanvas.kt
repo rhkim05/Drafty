@@ -13,6 +13,7 @@ import com.tabletnoteapp.canvas.models.Point
 import com.tabletnoteapp.canvas.models.Stroke
 import com.tabletnoteapp.canvas.models.StrokeStyle
 import com.tabletnoteapp.canvas.models.ToolType
+import com.tabletnoteapp.canvas.models.UndoAction
 import com.tabletnoteapp.canvas.utils.BezierSmoother
 import org.json.JSONArray
 import org.json.JSONObject
@@ -26,24 +27,26 @@ class DrawingCanvas(context: Context) : View(context) {
 
     // ── State ────────────────────────────────────────────────────────────────
 
-    private val committedStrokes = mutableListOf<Stroke>()   // finished strokes
-    private val redoStack        = mutableListOf<Stroke>()   // redo history
-    private var activeStroke: Stroke? = null                 // stroke being drawn
+    private val committedStrokes    = mutableListOf<Stroke>()
+    private val undoStack           = mutableListOf<UndoAction>()
+    private val redoStack           = mutableListOf<UndoAction>()
+    private var activeStroke: Stroke? = null
+    private val strokeEraserBuffer  = mutableListOf<Stroke>() // accumulates strokes erased in one gesture
 
     // ── Tool settings (can be changed from RN bridge) ─────────────────────
 
-    var penColor: Int     = Color.BLACK
-    var penThickness: Float = 4f
+    var penColor: Int          = Color.BLACK
+    var penThickness: Float    = 4f
     var eraserThickness: Float = 24f
-    var currentTool: ToolType = ToolType.PEN
+    var currentTool: ToolType  = ToolType.PEN
+    var eraserMode: String     = "pixel"   // "pixel" | "stroke"
 
-    // ── Callbacks (RN bridge sets these) ─────────────────────────────────
+    // ── Callbacks ─────────────────────────────────────────────────────────
 
     var onUndoRedoStateChanged: ((canUndo: Boolean, canRedo: Boolean) -> Unit)? = null
 
     // ── Rendering ────────────────────────────────────────────────────────────
 
-    // Off-screen bitmap for committed strokes (avoids replaying all paths every frame)
     private var bitmap: Bitmap? = null
     private var bitmapCanvas: Canvas? = null
 
@@ -64,7 +67,6 @@ class DrawingCanvas(context: Context) : View(context) {
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        // Recreate off-screen bitmap at new size, preserving existing drawing
         val newBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val newCanvas = Canvas(newBitmap)
         bitmap?.let { newCanvas.drawBitmap(it, 0f, 0f, null) }
@@ -74,10 +76,7 @@ class DrawingCanvas(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        // Draw committed strokes from off-screen bitmap
         bitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
-
-        // Draw the active (in-progress) stroke live
         activeStroke?.let { stroke ->
             val path = BezierSmoother.buildPath(stroke.points) ?: return@let
             canvas.drawPath(path, paintForStroke(stroke))
@@ -97,9 +96,36 @@ class DrawingCanvas(context: Context) : View(context) {
         val x = event.x
         val y = event.y
         val rawPressure = event.pressure.coerceIn(0f, 1f)
-        // 마우스 입력은 pressure가 항상 1.0이므로 스타일러스와 동일하게 처리
         val pressure = if (event.getToolType(0) == MotionEvent.TOOL_TYPE_MOUSE) 1f else rawPressure
 
+        // Stroke-eraser mode: no active stroke drawn; instead remove whole strokes on touch
+        if (currentTool == ToolType.ERASER && eraserMode == "stroke") {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    redoStack.clear()
+                    strokeEraserBuffer.clear()
+                    eraseStrokesAtPoint(x, y)
+                    notifyUndoRedoState()
+                    invalidate()
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    eraseStrokesAtPoint(x, y)
+                    invalidate()
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (strokeEraserBuffer.isNotEmpty()) {
+                        undoStack.add(UndoAction.EraseStrokes(strokeEraserBuffer.toList()))
+                        strokeEraserBuffer.clear()
+                    }
+                    notifyUndoRedoState()
+                    invalidate()
+                }
+            }
+            return true
+        }
+
+        // Pixel-eraser / pen mode
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 parent?.requestDisallowInterceptTouchEvent(true)
@@ -115,14 +141,12 @@ class DrawingCanvas(context: Context) : View(context) {
                 notifyUndoRedoState()
                 invalidate()
             }
-
             MotionEvent.ACTION_MOVE -> {
                 activeStroke?.let { stroke ->
                     stroke.addPoint(Point(x, y, pressure))
                     invalidate()
                 }
             }
-
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 activeStroke?.let { stroke ->
                     stroke.addPoint(Point(x, y, pressure))
@@ -135,13 +159,50 @@ class DrawingCanvas(context: Context) : View(context) {
         return true
     }
 
+    // ── Stroke-eraser hit test ────────────────────────────────────────────────
+
+    private fun eraseStrokesAtPoint(x: Float, y: Float) {
+        val thresholdSq = eraserThickness * eraserThickness
+        val toRemove = committedStrokes.filter { stroke ->
+            strokeHitsPoint(stroke, x, y, thresholdSq)
+        }
+        if (toRemove.isNotEmpty()) {
+            committedStrokes.removeAll(toRemove.toSet())
+            strokeEraserBuffer.addAll(toRemove)
+            redrawBitmap()
+        }
+    }
+
+    // Check if any segment of the stroke passes within sqrt(thresholdSq) of (x, y)
+    private fun strokeHitsPoint(stroke: Stroke, x: Float, y: Float, thresholdSq: Float): Boolean {
+        val pts = stroke.points
+        if (pts.isEmpty()) return false
+        if (pts.size == 1) {
+            val dx = pts[0].x - x; val dy = pts[0].y - y
+            return dx * dx + dy * dy <= thresholdSq
+        }
+        for (i in 0 until pts.size - 1) {
+            if (segmentDistSq(x, y, pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y) <= thresholdSq) return true
+        }
+        return false
+    }
+
+    private fun segmentDistSq(px: Float, py: Float, ax: Float, ay: Float, bx: Float, by: Float): Float {
+        val dx = bx - ax; val dy = by - ay
+        val lenSq = dx * dx + dy * dy
+        if (lenSq == 0f) { val ex = px - ax; val ey = py - ay; return ex * ex + ey * ey }
+        val t = ((px - ax) * dx + (py - ay) * dy).div(lenSq).coerceIn(0f, 1f)
+        val cx = ax + t * dx; val cy = ay + t * dy
+        val ex = px - cx; val ey = py - cy
+        return ex * ex + ey * ey
+    }
+
     // ── Stroke commit ─────────────────────────────────────────────────────────
 
     private fun commitStroke(stroke: Stroke) {
         if (stroke.isEmpty) return
         committedStrokes.add(stroke)
-
-        // Render into off-screen bitmap
+        undoStack.add(UndoAction.AddStroke(stroke))
         val path = BezierSmoother.buildPath(stroke.points) ?: return
         bitmapCanvas?.drawPath(path, paintForStroke(stroke))
         invalidate()
@@ -150,27 +211,38 @@ class DrawingCanvas(context: Context) : View(context) {
     // ── Undo / Redo ───────────────────────────────────────────────────────────
 
     fun undo() {
-        if (committedStrokes.isEmpty()) return
-        val last = committedStrokes.removeLast()
-        redoStack.add(last)
+        val action = undoStack.removeLastOrNull() ?: return
+        when (action) {
+            is UndoAction.AddStroke    -> committedStrokes.remove(action.stroke)
+            is UndoAction.EraseStrokes -> committedStrokes.addAll(action.strokes)
+        }
         redrawBitmap()
+        redoStack.add(action)
         notifyUndoRedoState()
     }
 
     fun redo() {
-        if (redoStack.isEmpty()) return
-        val stroke = redoStack.removeLast()
-        committedStrokes.add(stroke)
-        val path = BezierSmoother.buildPath(stroke.points) ?: return
-        bitmapCanvas?.drawPath(path, paintForStroke(stroke))
-        invalidate()
+        val action = redoStack.removeLastOrNull() ?: return
+        when (action) {
+            is UndoAction.AddStroke -> {
+                committedStrokes.add(action.stroke)
+                val path = BezierSmoother.buildPath(action.stroke.points)
+                if (path != null) bitmapCanvas?.drawPath(path, paintForStroke(action.stroke))
+                else redrawBitmap()
+                invalidate()
+            }
+            is UndoAction.EraseStrokes -> {
+                committedStrokes.removeAll(action.strokes.toSet())
+                redrawBitmap()
+            }
+        }
+        undoStack.add(action)
         notifyUndoRedoState()
     }
 
-    fun canUndo() = committedStrokes.isNotEmpty()
+    fun canUndo() = undoStack.isNotEmpty()
     fun canRedo() = redoStack.isNotEmpty()
 
-    // Replay all committed strokes onto a fresh bitmap
     private fun redrawBitmap() {
         val w = width; val h = height
         if (w == 0 || h == 0) return
@@ -204,6 +276,7 @@ class DrawingCanvas(context: Context) : View(context) {
 
     fun clearCanvas() {
         committedStrokes.clear()
+        undoStack.clear()
         redoStack.clear()
         bitmap?.eraseColor(Color.TRANSPARENT)
         notifyUndoRedoState()
@@ -236,6 +309,7 @@ class DrawingCanvas(context: Context) : View(context) {
 
     fun loadStrokesJson(json: String) {
         committedStrokes.clear()
+        undoStack.clear()
         redoStack.clear()
 
         val strokesArray = JSONArray(json)
