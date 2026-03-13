@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,11 +8,11 @@ import {
   StyleSheet,
   SafeAreaView,
   Alert,
-  AlertButton,
   Modal,
   TextInput,
   KeyboardAvoidingView,
   Platform,
+  Dimensions,
 } from 'react-native';
 import DocumentPicker from 'react-native-document-picker';
 import RNFS from 'react-native-fs';
@@ -26,6 +26,9 @@ import Sidebar from '../components/Sidebar';
 import { useTheme } from '../styles/theme';
 
 type HomeNav = NativeStackNavigationProp<RootStackParamList, 'Home'>;
+
+const POPUP_W = 180;
+const screenWidth = Dimensions.get('window').width;
 
 const formatDate = (ts: number) =>
   new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -46,6 +49,9 @@ export default function HomeScreen() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState('all');
   const [moveCategoryTarget, setMoveCategoryTarget] = useState<Note | null>(null);
+  const [popupNote, setPopupNote] = useState<Note | null>(null);
+  const [popupPos, setPopupPos] = useState({ x: 0, y: 0 });
+  const optBtnRefs = useRef<Record<string, any>>({});
 
   // Retroactively generate thumbnails for PDF notes that don't have one yet
   useEffect(() => {
@@ -140,25 +146,6 @@ export default function HomeScreen() {
   const [renameTarget, setRenameTarget] = useState<{ id: string; title: string } | null>(null);
   const [renameText, setRenameText] = useState('');
 
-  const onLongPress = (note: Note) => {
-    const actions: AlertButton[] = [
-      { text: 'Rename', onPress: () => { setRenameText(note.title); setRenameTarget({ id: note.id, title: note.title }); } },
-      { text: 'Delete', style: 'destructive', onPress: () =>
-        Alert.alert('Delete', `Delete "${note.title}"?`, [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Delete', style: 'destructive', onPress: () => deleteNote(note.id) },
-        ])
-      },
-    ];
-
-    if (categories.length > 0) {
-      actions.splice(1, 0, { text: 'Move to Category', onPress: () => setMoveCategoryTarget(note) });
-    }
-
-    actions.push({ text: 'Cancel', style: 'cancel' });
-    Alert.alert(note.title, undefined, actions);
-  };
-
   const confirmRename = () => {
     if (!renameTarget) return;
     const trimmed = renameText.trim();
@@ -215,7 +202,6 @@ export default function HomeScreen() {
               <TouchableOpacity
                 style={[styles.card, { backgroundColor: theme.surface }]}
                 onPress={() => openNote(item)}
-                onLongPress={() => onLongPress(item)}
                 activeOpacity={0.7}
               >
                 <View style={[styles.cardThumbnail, { backgroundColor: theme.surfaceAlt }]}>
@@ -234,6 +220,21 @@ export default function HomeScreen() {
                 </View>
                 <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={2}>{item.title}</Text>
                 <Text style={[styles.cardDate, { color: theme.textHint }]}>{formatDate(item.updatedAt)}</Text>
+                <TouchableOpacity
+                  ref={(r) => { optBtnRefs.current[item.id] = r; }}
+                  style={styles.optionsBtn}
+                  onPress={() => {
+                    optBtnRefs.current[item.id]?.measureInWindow(
+                      (x: number, y: number, w: number, h: number) => {
+                        setPopupPos({ x: x + w, y: y + h + 4 });
+                        setPopupNote(item);
+                      }
+                    );
+                  }}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                >
+                  <Text style={[styles.optionsBtnText, { color: theme.textSub }]}>⋮</Text>
+                </TouchableOpacity>
               </TouchableOpacity>
             )}
           />
@@ -296,6 +297,68 @@ export default function HomeScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* Note options popup */}
+      <Modal
+        visible={!!popupNote}
+        transparent
+        animationType="none"
+        onRequestClose={() => setPopupNote(null)}
+      >
+        <TouchableOpacity
+          style={StyleSheet.absoluteFill}
+          activeOpacity={1}
+          onPress={() => setPopupNote(null)}
+        />
+        <View style={[
+          popupStyles.box,
+          {
+            backgroundColor: theme.surface,
+            borderColor: theme.border,
+            top: popupPos.y,
+            left: Math.min(popupPos.x - POPUP_W, screenWidth - POPUP_W - 8),
+          },
+        ]}>
+          <TouchableOpacity
+            style={popupStyles.row}
+            onPress={() => {
+              const note = popupNote!;
+              setPopupNote(null);
+              setRenameText(note.title);
+              setRenameTarget({ id: note.id, title: note.title });
+            }}
+          >
+            <Text style={[popupStyles.rowText, { color: theme.text }]}>Rename</Text>
+          </TouchableOpacity>
+
+          {categories.length > 0 && (
+            <>
+              <View style={[popupStyles.sep, { backgroundColor: theme.border }]} />
+              <TouchableOpacity
+                style={popupStyles.row}
+                onPress={() => { const note = popupNote!; setPopupNote(null); setMoveCategoryTarget(note); }}
+              >
+                <Text style={[popupStyles.rowText, { color: theme.text }]}>Move to Category</Text>
+              </TouchableOpacity>
+            </>
+          )}
+
+          <View style={[popupStyles.sep, { backgroundColor: theme.border }]} />
+          <TouchableOpacity
+            style={popupStyles.row}
+            onPress={() => {
+              const note = popupNote!;
+              setPopupNote(null);
+              Alert.alert('Delete', `Delete "${note.title}"?`, [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Delete', style: 'destructive', onPress: () => deleteNote(note.id) },
+              ]);
+            }}
+          >
+            <Text style={[popupStyles.rowText, { color: theme.destructive }]}>Delete</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -320,6 +383,31 @@ const moveCatStyles = StyleSheet.create({
   rowText:   { fontSize: 15 },
   cancelRow: { paddingHorizontal: 16, paddingVertical: 14, borderTopWidth: 1, marginTop: 4 },
   cancelText: { fontSize: 15, textAlign: 'center' },
+});
+
+const popupStyles = StyleSheet.create({
+  box: {
+    position: 'absolute',
+    width: POPUP_W,
+    borderRadius: 10,
+    borderWidth: 1,
+    overflow: 'hidden',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+  },
+  row: {
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+  },
+  rowText: {
+    fontSize: 15,
+  },
+  sep: {
+    height: 1,
+  },
 });
 
 const styles = StyleSheet.create({
@@ -423,6 +511,21 @@ const styles = StyleSheet.create({
   },
   cardDate: {
     fontSize: 12,
+  },
+  optionsBtn: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
+  },
+  optionsBtnText: {
+    fontSize: 16,
+    fontWeight: '700',
+    lineHeight: 18,
   },
   empty: {
     flex: 1,
