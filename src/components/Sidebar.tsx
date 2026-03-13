@@ -117,8 +117,8 @@ export default function Sidebar({ open, categories, selectedCategoryId, onSelect
               style={[styles.categoryRow, selectedCategoryId === cat.id && { backgroundColor: theme.text }]}
               onPress={() => selectCategory(cat.id)}
             >
-              <Text style={styles.categoryIcon}>
-                {cat.id === 'all' ? '📋' : cat.id === 'pdfs' ? '📄' : cat.id === 'notes' ? '📝' : '📁'}
+              <Text style={[styles.categoryIcon, cat.id === 'favorites' && styles.favoriteIcon]}>
+                {cat.id === 'all' ? '📋' : cat.id === 'favorites' ? '★' : cat.id === 'pdfs' ? '📄' : cat.id === 'notes' ? '📝' : '📁'}
               </Text>
               <Text
                 style={[styles.categoryLabel, { color: theme.text }, selectedCategoryId === cat.id && { color: theme.surface }]}
@@ -309,6 +309,9 @@ const styles = StyleSheet.create({
   categoryIcon: {
     fontSize: 16,
     marginRight: 10,
+  },
+  favoriteIcon: {
+    color: '#F5A623',
   },
   categoryLabel: {
     flex: 1,

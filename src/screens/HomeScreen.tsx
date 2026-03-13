@@ -73,10 +73,11 @@ export default function HomeScreen() {
 
   const filteredNotes = useMemo(() => {
     switch (selectedCategoryId) {
-      case 'all':   return notes;
-      case 'pdfs':  return notes.filter(n => n.type === 'pdf');
-      case 'notes': return notes.filter(n => n.type === 'note');
-      default:      return notes.filter(n => n.categoryId === selectedCategoryId);
+      case 'all':       return notes;
+      case 'favorites': return notes.filter(n => n.isFavorite);
+      case 'pdfs':      return notes.filter(n => n.type === 'pdf');
+      case 'notes':     return notes.filter(n => n.type === 'note');
+      default:          return notes.filter(n => n.categoryId === selectedCategoryId);
     }
   }, [notes, selectedCategoryId]);
 
@@ -220,6 +221,16 @@ export default function HomeScreen() {
                 </View>
                 <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={2}>{item.title}</Text>
                 <Text style={[styles.cardDate, { color: theme.textHint }]}>{formatDate(item.updatedAt)}</Text>
+                {/* Favorite button — top-left */}
+                <TouchableOpacity
+                  style={styles.favoriteBtn}
+                  onPress={() => updateNote(item.id, { isFavorite: !item.isFavorite })}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                >
+                  <Text style={styles.favoriteBtnText}>{item.isFavorite ? '★' : '☆'}</Text>
+                </TouchableOpacity>
+
+                {/* Options button — top-right */}
                 <TouchableOpacity
                   ref={(r) => { optBtnRefs.current[item.id] = r; }}
                   style={styles.optionsBtn}
@@ -511,6 +522,20 @@ const styles = StyleSheet.create({
   },
   cardDate: {
     fontSize: 12,
+  },
+  favoriteBtn: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
+  },
+  favoriteBtnText: {
+    fontSize: 16,
+    color: '#F5A623',
   },
   optionsBtn: {
     position: 'absolute',
