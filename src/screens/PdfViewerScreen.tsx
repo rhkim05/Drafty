@@ -37,15 +37,17 @@ export default function PdfViewerScreen({ route, navigation }: Props) {
   const [pageInputText, setPageInputText] = useState('');
   const viewRef = useRef<any>(null);
   const updateNote = useNotebookStore(s => s.updateNote);
-  const activeTool      = useToolStore(s => s.activeTool);
-  const penThickness    = useToolStore(s => s.penThickness);
-  const eraserThickness = useToolStore(s => s.eraserThickness);
-  const eraserMode      = useToolStore(s => s.eraserMode);
-  const penColor        = useToolStore(s => s.penColor);
+  const activeTool           = useToolStore(s => s.activeTool);
+  const penThickness         = useToolStore(s => s.penThickness);
+  const eraserThickness      = useToolStore(s => s.eraserThickness);
+  const eraserMode           = useToolStore(s => s.eraserMode);
+  const penColor             = useToolStore(s => s.penColor);
+  const highlighterColor     = useToolStore(s => s.highlighterColor);
+  const highlighterThickness = useToolStore(s => s.highlighterThickness);
 
-  // Default to scroll/select mode on entry
+  // Default to scroll mode on entry
   useEffect(() => {
-    useToolStore.getState().setTool('select');
+    useToolStore.getState().setTool('scroll');
   }, []);
 
   // Listen to native events from PdfDrawingView
@@ -158,6 +160,8 @@ export default function PdfViewerScreen({ route, navigation }: Props) {
           penThickness={penThickness}
           eraserThickness={eraserThickness}
           eraserMode={eraserMode}
+          highlighterColor={highlighterColor}
+          highlighterThickness={highlighterThickness}
           style={StyleSheet.absoluteFill}
           onLayout={handleViewLayout}
         />

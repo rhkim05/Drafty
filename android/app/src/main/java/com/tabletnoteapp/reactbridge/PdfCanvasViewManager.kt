@@ -46,9 +46,12 @@ class PdfCanvasViewManager : SimpleViewManager<PdfDrawingView>() {
     @ReactProp(name = "tool")
     fun setTool(view: PdfDrawingView, tool: String?) {
         view.currentTool = when (tool) {
-            "eraser" -> ToolType.ERASER
-            "pen"    -> ToolType.PEN
-            else     -> ToolType.SELECT
+            "eraser"      -> ToolType.ERASER
+            "pen"         -> ToolType.PEN
+            "highlighter" -> ToolType.HIGHLIGHTER
+            "select"      -> ToolType.SELECT
+            "scroll"      -> ToolType.SCROLL
+            else          -> ToolType.SCROLL
         }
     }
 
@@ -70,5 +73,15 @@ class PdfCanvasViewManager : SimpleViewManager<PdfDrawingView>() {
     @ReactProp(name = "eraserMode")
     fun setEraserMode(view: PdfDrawingView, mode: String?) {
         view.eraserMode = mode ?: "pixel"
+    }
+
+    @ReactProp(name = "highlighterColor")
+    fun setHighlighterColor(view: PdfDrawingView, color: String?) {
+        if (color != null) view.highlighterColor = Color.parseColor(color)
+    }
+
+    @ReactProp(name = "highlighterThickness", defaultFloat = 16f)
+    fun setHighlighterThickness(view: PdfDrawingView, thickness: Float) {
+        view.highlighterThickness = thickness
     }
 }

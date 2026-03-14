@@ -20,32 +20,44 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, showHandTool, c
     activeTool, canUndo, canRedo,
     penThickness, eraserThickness, eraserMode,
     penColor, presetColors,
+    highlighterColor, highlighterThickness,
     setTool, setCanUndo: _cu, setCanRedo: _cr,
     setPenThickness, setEraserThickness, setEraserMode,
     setPenColor, setPresetColor,
+    setHighlighterColor, setHighlighterThickness,
   } = useToolStore();
 
-  const [penExpanded, setPenExpanded] = useState(false);
-  const [showColorPicker, setShowColorPicker] = useState(false);
-  const [pickerKey, setPickerKey] = useState(0);
-  const [popupPos, setPopupPos] = useState({ top: 60, left: 0 });
+  const [penExpanded, setPenExpanded]           = useState(false);
+  const [showColorPicker, setShowColorPicker]   = useState(false);
+  const [pickerKey, setPickerKey]               = useState(0);
+  const [popupPos, setPopupPos]                 = useState({ top: 60, left: 0 });
 
-  const [eraserExpanded, setEraserExpanded] = useState(false);
-  const [eraserPopupPos, setEraserPopupPos] = useState({ top: 60, left: 0 });
+  const [eraserExpanded, setEraserExpanded]     = useState(false);
+  const [eraserPopupPos, setEraserPopupPos]     = useState({ top: 60, left: 0 });
+
+  const [hlExpanded, setHlExpanded]             = useState(false);
+  const [showHlColorPicker, setShowHlColorPicker] = useState(false);
+  const [hlPickerKey, setHlPickerKey]           = useState(0);
+  const [hlPopupPos, setHlPopupPos]             = useState({ top: 60, left: 0 });
 
   const penBtnRef    = useRef<TouchableOpacity>(null);
   const eraserBtnRef = useRef<TouchableOpacity>(null);
+  const hlBtnRef     = useRef<TouchableOpacity>(null);
 
   const theme = useTheme();
-  const isPen    = activeTool === 'pen';
-  const isEraser = activeTool === 'eraser';
+  const isPen        = activeTool === 'pen';
+  const isEraser     = activeTool === 'eraser';
+  const isHighlighter = activeTool === 'highlighter';
 
   const closePenPopup = () => {
     setPenExpanded(false);
     setShowColorPicker(false);
   };
 
-  const closeEraserPopup = () => setEraserExpanded(false);
+  const closeEraserPopup  = () => setEraserExpanded(false);
+  const closeHlPopup      = () => { setHlExpanded(false); setShowHlColorPicker(false); };
+
+  const HIGHLIGHTER_PRESETS = ['#FFFF00', '#A8F0A0', '#FFB3DE', '#A0D4FF', '#FFD580'];
 
   const handleEraserPress = () => {
     if (isEraser) {
@@ -75,6 +87,24 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, showHandTool, c
       setTool('pen');
       closePenPopup();
       closeEraserPopup();
+      closeHlPopup();
+    }
+  };
+
+  const handleHighlighterPress = () => {
+    if (isHighlighter) {
+      if (!hlExpanded) {
+        hlBtnRef.current?.measureInWindow((x, y, _w, h) => {
+          setHlPopupPos({ top: y + h + 6, left: x });
+        });
+      }
+      setHlExpanded(v => !v);
+      setShowHlColorPicker(false);
+    } else {
+      setTool('highlighter');
+      closePenPopup();
+      closeEraserPopup();
+      closeHlPopup();
     }
   };
 
@@ -99,18 +129,27 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, showHandTool, c
         </>
       )}
 
-      {/* ── Navigate ── */}
-      {showHandTool && (
-        <TouchableOpacity
-          style={[styles.button, activeTool === 'select' && activeStyle]}
-          onPress={() => { setTool('select'); closePenPopup(); closeEraserPopup(); }}
-        >
-          <Text style={styles.buttonIcon}>✋</Text>
-          <Text style={[styles.buttonLabel, activeTool === 'select' ? activeLabelStyle : inactiveLabelStyle]}>
-            Navigate
-          </Text>
-        </TouchableOpacity>
-      )}
+      {/* ── Scroll ── */}
+      <TouchableOpacity
+        style={[styles.button, activeTool === 'scroll' && activeStyle]}
+        onPress={() => { setTool('scroll'); closePenPopup(); closeEraserPopup(); closeHlPopup(); }}
+      >
+        <Text style={styles.buttonIcon}>✋</Text>
+        <Text style={[styles.buttonLabel, activeTool === 'scroll' ? activeLabelStyle : inactiveLabelStyle]}>
+          Scroll
+        </Text>
+      </TouchableOpacity>
+
+      {/* ── Select ── */}
+      <TouchableOpacity
+        style={[styles.button, activeTool === 'select' && activeStyle]}
+        onPress={() => { setTool('select'); closePenPopup(); closeEraserPopup(); closeHlPopup(); }}
+      >
+        <Text style={styles.buttonIcon}>✦</Text>
+        <Text style={[styles.buttonLabel, activeTool === 'select' ? activeLabelStyle : inactiveLabelStyle]}>
+          Select
+        </Text>
+      </TouchableOpacity>
 
       <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
@@ -125,6 +164,15 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, showHandTool, c
       </TouchableOpacity>
 
       <TouchableOpacity
+        ref={hlBtnRef}
+        style={[styles.button, isHighlighter && activeStyle]}
+        onPress={handleHighlighterPress}
+      >
+        <Text style={styles.buttonIcon}>🖊️</Text>
+        <Text style={[styles.buttonLabel, isHighlighter ? activeLabelStyle : inactiveLabelStyle]}>Highlight</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
         ref={eraserBtnRef}
         style={[styles.button, isEraser && activeStyle]}
         onPress={handleEraserPress}
@@ -133,7 +181,7 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, showHandTool, c
         <Text style={[styles.buttonLabel, isEraser ? activeLabelStyle : inactiveLabelStyle]}>Eraser</Text>
       </TouchableOpacity>
 
-      {(isPen || isEraser) && (
+      {(isPen || isEraser || isHighlighter) && (
         <View style={[styles.fingerHint, { backgroundColor: theme.surfaceAlt }]}>
           <Text style={[styles.fingerHintText, { color: theme.textSub }]}>👆 finger scrolls</Text>
         </View>
@@ -200,6 +248,51 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, showHandTool, c
               presetColors={presetColors}
               onColorChange={setPenColor}
               onPresetSave={(i, c) => setPresetColor(i, c)}
+            />
+          </View>
+        )}
+      </Modal>
+
+      {/* ── Highlighter options popup ── */}
+      <Modal
+        visible={isHighlighter && hlExpanded}
+        transparent
+        animationType="fade"
+        onRequestClose={closeHlPopup}
+      >
+        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={closeHlPopup} activeOpacity={1} />
+
+        <View style={[styles.penPopup, { top: hlPopupPos.top, left: hlPopupPos.left, backgroundColor: theme.surface, borderColor: theme.border }]}>
+          {/* Color swatch */}
+          <TouchableOpacity
+            style={[styles.colorBtn, { backgroundColor: highlighterColor }]}
+            onPress={() => { setHlPickerKey(k => k + 1); setShowHlColorPicker(v => !v); }}
+          />
+          {/* Preset highlighter colors */}
+          {HIGHLIGHTER_PRESETS.map(c => (
+            <TouchableOpacity
+              key={c}
+              style={[styles.presetDot, { backgroundColor: c }, highlighterColor === c && styles.presetDotActive]}
+              onPress={() => setHighlighterColor(c)}
+            />
+          ))}
+          <View style={[styles.popupDivider, { backgroundColor: theme.border }]} />
+          <ThicknessSlider
+            value={highlighterThickness}
+            min={8} max={48}
+            color={highlighterColor}
+            onChange={setHighlighterThickness}
+          />
+        </View>
+
+        {showHlColorPicker && (
+          <View style={[styles.pickerAnchor, { top: hlPopupPos.top + 52, left: hlPopupPos.left }]}>
+            <ColorPickerPanel
+              key={hlPickerKey}
+              color={highlighterColor}
+              presetColors={HIGHLIGHTER_PRESETS}
+              onColorChange={setHighlighterColor}
+              onPresetSave={() => {}}
             />
           </View>
         )}
@@ -289,6 +382,16 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 2,
     borderColor: '#CCCCCC',
+  },
+  presetDot: {
+    width: 20, height: 20,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: '#CCCCCC',
+  },
+  presetDotActive: {
+    borderColor: '#555',
+    borderWidth: 2.5,
   },
   fingerHint: {
     marginLeft: 4,

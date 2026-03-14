@@ -65,7 +65,7 @@ class PdfDrawingView(context: Context) : View(context) {
     var scrollY    = 0f    // vertical scroll in screen px; screen_y = logical_y * scale - scrollY
     var translateX = 0f    // horizontal pan in screen px; screen_x = logical_x * scale + translateX
 
-    private val minScale = 0.85f
+    private var minScale = 0.85f
 
     private fun maxScrollY()    = (totalDocHeight * scale - height).coerceAtLeast(0f)
     private fun centeredTranslateX() = width * (1f - scale) / 2f   // centers page when zoomed out
@@ -128,14 +128,20 @@ class PdfDrawingView(context: Context) : View(context) {
     private val strokeEraserBuffer = mutableListOf<Pair<Int, Stroke>>()
     private var strokeOriginalIndexMap: Map<Stroke, Int> = emptyMap()
 
-    var currentTool:      ToolType = ToolType.SELECT
-    var penColor:         Int      = Color.BLACK
-    var penThickness:     Float    = 4f
-    var eraserThickness:  Float    = 24f
-    var eraserMode:       String   = "pixel"   // "pixel" | "stroke"
+    var currentTool:        ToolType = ToolType.SELECT
+    var penColor:           Int      = Color.BLACK
+    var penThickness:       Float    = 4f
+    var eraserThickness:    Float    = 24f
+    var eraserMode:         String   = "pixel"   // "pixel" | "stroke"
+    var highlighterColor:   Int      = Color.YELLOW
+    var highlighterThickness: Float  = 16f
 
     private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+    }
+    private val highlighterPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+        alpha = 120  // ~47% opacity — like a real highlighter
     }
     private val eraserPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
@@ -211,6 +217,10 @@ class PdfDrawingView(context: Context) : View(context) {
                     pageHeights.clear(); pageHeights.addAll(heights)
                     pageYOffsets.clear(); pageYOffsets.addAll(offsets)
                     totalDocHeight = y
+                    val firstH = pageHeights.firstOrNull() ?: 0
+                    if (firstH > 0 && height > 0) {
+                        minScale = (height.toFloat() / firstH * 0.95f).coerceIn(0.1f, 1f)
+                    }
                     onLoadComplete?.invoke(renderer.pageCount)
                     invalidate()
                 }
@@ -271,6 +281,10 @@ class PdfDrawingView(context: Context) : View(context) {
             pageHeights.add(h); pageYOffsets.add(y); y += h + gap
         }
         totalDocHeight = y
+        val firstH = pageHeights.firstOrNull() ?: 0
+        if (firstH > 0 && height > 0) {
+            minScale = (height.toFloat() / firstH * 0.95f).coerceIn(0.1f, 1f)
+        }
         scrollY = scrollY.coerceIn(0f, maxScrollY())
         constrain()
         invalidate()
@@ -299,7 +313,15 @@ class PdfDrawingView(context: Context) : View(context) {
             else { canvas.drawRect(dst, pageBgPaint); renderPageAsync(i) }
         }
 
-        // 2. Annotation strokes
+        // 2. Annotation strokes — clipped to page boundaries so strokes don't bleed into gaps
+        canvas.save()
+        val clipPath = Path()
+        for (i in pageYOffsets.indices) {
+            val ph = pageHeights.getOrNull(i) ?: continue
+            clipPath.addRect(0f, pageYOffsets[i], width.toFloat(), pageYOffsets[i] + ph, Path.Direction.CW)
+        }
+        canvas.clipPath(clipPath)
+
         // Use saveLayer when erasers are present so PorterDuff.CLEAR only affects the stroke layer
         val hasEraser = committedStrokes.any { it.style.tool == ToolType.ERASER }
                      || activeStroke?.style?.tool == ToolType.ERASER
@@ -313,7 +335,8 @@ class PdfDrawingView(context: Context) : View(context) {
         }
 
         if (layerSave != -1) canvas.restoreToCount(layerSave)
-        canvas.restore()
+        canvas.restore()  // remove page clip
+        canvas.restore()  // remove translate + scale
 
         // 3. Scrollbar (screen coords, outside transform)
         drawScrollbar(canvas)
@@ -358,8 +381,8 @@ class PdfDrawingView(context: Context) : View(context) {
         val isScrollbarDown = event.actionMasked == MotionEvent.ACTION_DOWN && isOnScrollbar(event.x, event.y)
         if (isScrollbarDragging || isScrollbarDown) return handleScrollbar(event)
 
-        // Select mode: all input → scroll/zoom
-        if (currentTool == ToolType.SELECT) return handleScroll(event)
+        // Scroll/Select mode: all input → scroll/zoom
+        if (currentTool == ToolType.SCROLL || currentTool == ToolType.SELECT) return handleScroll(event)
 
         // Draw mode: all input draws (finger scroll only available via SELECT tool)
         return handleDraw(event)
@@ -496,9 +519,14 @@ class PdfDrawingView(context: Context) : View(context) {
                 if (currentTool == ToolType.ERASER) {
                     eraserCursorX = event.x; eraserCursorY = event.y; showEraserCursor = true
                 }
+                val (strokeColor, strokeThickness) = when (currentTool) {
+                    ToolType.ERASER      -> Color.TRANSPARENT to eraserThickness
+                    ToolType.HIGHLIGHTER -> highlighterColor  to highlighterThickness
+                    else                 -> penColor          to penThickness
+                }
                 val style = StrokeStyle(
-                    color     = if (currentTool == ToolType.ERASER) Color.TRANSPARENT else penColor,
-                    thickness = if (currentTool == ToolType.ERASER) eraserThickness else penThickness,
+                    color     = strokeColor,
+                    thickness = strokeThickness,
                     tool      = currentTool,
                 )
                 activeStroke = Stroke(style = style).also { it.addPoint(Point(xDoc, yDoc, pressure)) }
@@ -582,6 +610,7 @@ class PdfDrawingView(context: Context) : View(context) {
                     committedStrokes.add(idx.coerceIn(0, committedStrokes.size), stroke)
                 }
             }
+            is UndoAction.MoveStrokes, is UndoAction.ResizeStrokes -> { /* not used in PDF view */ }
         }
         redoStack.add(action)
         notifyUndoRedoState(); invalidate()
@@ -592,6 +621,7 @@ class PdfDrawingView(context: Context) : View(context) {
         when (action) {
             is UndoAction.AddStroke    -> committedStrokes.add(action.stroke)
             is UndoAction.EraseStrokes -> committedStrokes.removeAll(action.entries.map { it.second }.toSet())
+            is UndoAction.MoveStrokes, is UndoAction.ResizeStrokes -> { /* not used in PDF view */ }
         }
         undoStack.add(action)
         notifyUndoRedoState(); invalidate()
@@ -652,9 +682,13 @@ class PdfDrawingView(context: Context) : View(context) {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private fun paintForStroke(s: Stroke) =
-        if (s.style.tool == ToolType.ERASER) eraserPaint.also { it.strokeWidth = s.style.thickness }
-        else strokePaint.also { it.color = s.style.color; it.strokeWidth = s.style.thickness }
+    private fun paintForStroke(s: Stroke) = when (s.style.tool) {
+        ToolType.ERASER      -> eraserPaint.also { it.strokeWidth = s.style.thickness }
+        ToolType.HIGHLIGHTER -> highlighterPaint.also {
+            it.color = s.style.color; it.alpha = 120; it.strokeWidth = s.style.thickness
+        }
+        else -> strokePaint.also { it.color = s.style.color; it.strokeWidth = s.style.thickness }
+    }
 
     private fun getCurrentPage(): Int {
         val logMidY = (scrollY + height / 2f) / scale

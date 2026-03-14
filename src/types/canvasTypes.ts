@@ -2,7 +2,7 @@
 
 export type PenColor = string; // hex color e.g. '#000000'
 
-export type ToolMode = 'pen' | 'eraser' | 'select'; // 'select' = hand/scroll mode in PDF viewer
+export type ToolMode = 'pen' | 'eraser' | 'highlighter' | 'select' | 'scroll';
 
 export type EraserMode = 'pixel' | 'stroke'; // 'pixel' = PorterDuff clear, 'stroke' = removes whole stroke
 

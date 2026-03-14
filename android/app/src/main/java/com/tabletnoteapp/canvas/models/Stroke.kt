@@ -1,6 +1,6 @@
 package com.tabletnoteapp.canvas.models
 
-enum class ToolType { PEN, ERASER, SELECT }
+enum class ToolType { PEN, ERASER, SELECT, HIGHLIGHTER, SCROLL }
 
 data class StrokeStyle(
     val color: Int,
@@ -20,4 +20,10 @@ sealed class UndoAction {
     data class AddStroke(val stroke: Stroke) : UndoAction()
     // entries: (originalIndex, stroke) — index in committedStrokes at gesture-start snapshot
     data class EraseStrokes(val entries: List<Pair<Int, Stroke>>) : UndoAction()
+    data class MoveStrokes(val indices: List<Int>, val dx: Float, val dy: Float) : UndoAction()
+    data class ResizeStrokes(
+        val indices: List<Int>,
+        val scaleX: Float, val scaleY: Float,
+        val pivotX: Float, val pivotY: Float,
+    ) : UndoAction()
 }

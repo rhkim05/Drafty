@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -11,8 +11,10 @@ import RNFS from 'react-native-fs';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation';
 import Toolbar from '../components/Toolbar';
-import CanvasView from '../native/CanvasView';
+import CanvasView, { SelectionInfo } from '../native/CanvasView';
 import CanvasModule from '../native/CanvasModule';
+import SelectionPopup from '../components/SelectionPopup';
+import NotePageStrip from '../components/NotePageStrip';
 import { useToolStore } from '../store/useToolStore';
 import { useNotebookStore } from '../store/useNotebookStore';
 import { useTheme } from '../styles/theme';
@@ -24,20 +26,30 @@ const DRAWINGS_DIR = `${RNFS.DocumentDirectoryPath}/drawings`;
 export default function NoteEditorScreen({ route, navigation }: Props) {
   const { note } = route.params;
   const canvasRef = useRef<any>(null);
-  const activeTool      = useToolStore(s => s.activeTool);
-  const penThickness    = useToolStore(s => s.penThickness);
-  const eraserThickness = useToolStore(s => s.eraserThickness);
-  const eraserMode      = useToolStore(s => s.eraserMode);
-  const penColor        = useToolStore(s => s.penColor);
+  const activeTool          = useToolStore(s => s.activeTool);
+  const penThickness        = useToolStore(s => s.penThickness);
+  const eraserThickness     = useToolStore(s => s.eraserThickness);
+  const eraserMode          = useToolStore(s => s.eraserMode);
+  const penColor            = useToolStore(s => s.penColor);
+  const highlighterColor    = useToolStore(s => s.highlighterColor);
+  const highlighterThickness = useToolStore(s => s.highlighterThickness);
   const updateNote = useNotebookStore(s => s.updateNote);
   const theme = useTheme();
+
+  const [selectionInfo, setSelectionInfo] = useState<SelectionInfo | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [showStrip, setShowStrip] = useState(false);
 
   // Save strokes to file and update the note record
   const saveStrokes = useCallback(async () => {
     const tag = findNodeHandle(canvasRef.current);
     if (!tag) return;
     const json = await CanvasModule.getStrokes(tag);
-    if (json === '[]') return; // nothing to save
+    // v2 format: { version, pageCount, strokes: [...] }
+    const parsed = JSON.parse(json);
+    const strokes = Array.isArray(parsed) ? parsed : (parsed.strokes ?? []);
+    if (strokes.length === 0) return;
     await RNFS.mkdir(DRAWINGS_DIR);
     const filePath = `${DRAWINGS_DIR}/${note.id}.json`;
     await RNFS.writeFile(filePath, json, 'utf8');
@@ -70,6 +82,20 @@ export default function NoteEditorScreen({ route, navigation }: Props) {
     if (tag) CanvasModule.redo(tag);
   }, []);
 
+  const handleSelectionChanged = useCallback((info: SelectionInfo) => {
+    setSelectionInfo(info);
+  }, []);
+
+  const handlePageChanged = useCallback((page: number) => {
+    setCurrentPage(page + 1); // 0-indexed → 1-indexed
+  }, []);
+
+  const handlePageCountChanged = useCallback((total: number) => {
+    setTotalPages(total);
+  }, []);
+
+  const viewTag = canvasRef.current ? findNodeHandle(canvasRef.current) : null;
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
       <View style={[styles.header, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
@@ -80,18 +106,47 @@ export default function NoteEditorScreen({ route, navigation }: Props) {
         <View style={styles.headerRight} />
       </View>
 
-      <Toolbar onUndo={handleUndo} onRedo={handleRedo} />
-
-      <CanvasView
-        ref={canvasRef}
-        tool={activeTool}
-        penColor={penColor}
-        penThickness={penThickness}
-        eraserThickness={eraserThickness}
-        eraserMode={eraserMode}
-        style={styles.canvas}
-        onLayout={handleLayout}
+      <Toolbar
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        onToggleStrip={() => setShowStrip(s => !s)}
+        showStrip={showStrip}
+        currentPage={currentPage}
+        totalPages={totalPages}
       />
+
+      <View style={styles.canvasContainer}>
+        <CanvasView
+          ref={canvasRef}
+          tool={activeTool}
+          penColor={penColor}
+          penThickness={penThickness}
+          eraserThickness={eraserThickness}
+          eraserMode={eraserMode}
+          highlighterColor={highlighterColor}
+          highlighterThickness={highlighterThickness}
+          style={styles.canvas}
+          onLayout={handleLayout}
+          onSelectionChanged={handleSelectionChanged}
+          onPageChanged={handlePageChanged}
+          onPageCountChanged={handlePageCountChanged}
+        />
+
+        {selectionInfo?.hasSelection && viewTag != null && (
+          <SelectionPopup info={selectionInfo} viewTag={viewTag} />
+        )}
+      </View>
+
+      {showStrip && totalPages > 0 && (
+        <NotePageStrip
+          totalPages={totalPages}
+          currentPage={currentPage}
+          onPageSelect={(page) => {
+            const tag = findNodeHandle(canvasRef.current);
+            if (tag) CanvasModule.scrollToPage(tag, page);
+          }}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -124,8 +179,10 @@ const styles = StyleSheet.create({
   headerRight: {
     width: 60,
   },
+  canvasContainer: {
+    flex: 1,
+  },
   canvas: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
   },
 });

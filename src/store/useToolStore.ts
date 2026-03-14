@@ -15,6 +15,8 @@ interface ToolState {
   eraserMode: EraserMode;
   penColor: string;
   presetColors: string[];
+  highlighterColor: string;
+  highlighterThickness: number;
   setTool: (tool: ToolMode) => void;
   setCanUndo: (value: boolean) => void;
   setCanRedo: (value: boolean) => void;
@@ -23,6 +25,8 @@ interface ToolState {
   setEraserMode: (mode: EraserMode) => void;
   setPenColor: (color: string) => void;
   setPresetColor: (index: number, color: string) => void;
+  setHighlighterColor: (color: string) => void;
+  setHighlighterThickness: (value: number) => void;
 }
 
 export const useToolStore = create<ToolState>(set => ({
@@ -34,6 +38,8 @@ export const useToolStore = create<ToolState>(set => ({
   eraserMode: 'pixel',
   penColor: '#000000',
   presetColors: DEFAULT_PRESETS,
+  highlighterColor: '#FFFF00',
+  highlighterThickness: 16,
   setTool: (tool) => set({ activeTool: tool }),
   setCanUndo: (value) => set({ canUndo: value }),
   setCanRedo: (value) => set({ canRedo: value }),
@@ -46,4 +52,6 @@ export const useToolStore = create<ToolState>(set => ({
     updated[index] = color;
     return { presetColors: updated };
   }),
+  setHighlighterColor: (color) => set({ highlighterColor: color }),
+  setHighlighterThickness: (value) => set({ highlighterThickness: value }),
 }));

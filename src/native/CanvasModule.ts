@@ -10,4 +10,8 @@ export default {
   clear: (viewTag: number) => CanvasModule.clear(viewTag),
   getStrokes: (viewTag: number): Promise<string> => CanvasModule.getStrokes(viewTag),
   loadStrokes: (viewTag: number, json: string) => CanvasModule.loadStrokes(viewTag, json),
+  scrollToPage: (viewTag: number, page: number) => CanvasModule.scrollToPage(viewTag, page),
+  deleteSelected: (viewTag: number) => CanvasModule.deleteSelected(viewTag),
+  captureSelected: (viewTag: number): Promise<string> => CanvasModule.captureSelected(viewTag),
+  cutSelected: (viewTag: number): Promise<string> => CanvasModule.cutSelected(viewTag),
 };

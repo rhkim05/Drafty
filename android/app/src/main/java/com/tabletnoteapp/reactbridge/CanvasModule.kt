@@ -49,6 +49,46 @@ class CanvasModule(private val reactContext: ReactApplicationContext) :
         withCanvas(viewTag) { it.loadStrokesJson(json) }
     }
 
+    @ReactMethod
+    fun scrollToPage(viewTag: Int, page: Int) {
+        withCanvas(viewTag) { it.scrollToPage(page - 1) }  // JS 1-indexed → Kotlin 0-indexed
+    }
+
+    @ReactMethod
+    fun deleteSelected(viewTag: Int) {
+        withCanvas(viewTag) { it.deleteSelected() }
+    }
+
+    @ReactMethod
+    fun captureSelected(viewTag: Int, promise: Promise) {
+        reactContext.runOnUiQueueThread {
+            val uiManager = reactContext.getNativeModule(UIManagerModule::class.java)
+            val view = uiManager?.resolveView(viewTag) as? DrawingCanvas
+            if (view != null) {
+                val path = view.captureSelection()
+                if (path.isNotEmpty()) promise.resolve(path)
+                else promise.reject("ERR_CAPTURE", "Nothing selected to capture")
+            } else {
+                promise.reject("ERR_NO_VIEW", "Canvas view not found for tag $viewTag")
+            }
+        }
+    }
+
+    @ReactMethod
+    fun cutSelected(viewTag: Int, promise: Promise) {
+        reactContext.runOnUiQueueThread {
+            val uiManager = reactContext.getNativeModule(UIManagerModule::class.java)
+            val view = uiManager?.resolveView(viewTag) as? DrawingCanvas
+            if (view != null) {
+                val json = view.getSelectedStrokesJson()
+                view.deleteSelected()
+                promise.resolve(json)
+            } else {
+                promise.reject("ERR_NO_VIEW", "Canvas view not found for tag $viewTag")
+            }
+        }
+    }
+
     private fun withCanvas(viewTag: Int, block: (DrawingCanvas) -> Unit) {
         reactContext.runOnUiQueueThread {
             val uiManager = reactContext.getNativeModule(UIManagerModule::class.java) ?: return@runOnUiQueueThread
