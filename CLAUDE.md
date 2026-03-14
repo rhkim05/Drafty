@@ -30,13 +30,13 @@ npm install --legacy-peer-deps
 
 ### Android build requirements
 
-**JDK 17 is required** (JDK 21+ breaks Gradle 8.3). Set the path in `android/gradle.properties`:
+**JDK 17 is required** (JDK 21+ breaks Gradle 8.3). `android/gradle.properties` is committed and contains shared settings — do **not** put `org.gradle.java.home` there. Instead, put your machine-specific JDK path in `~/.gradle/gradle.properties` (macOS/Linux) or `%USERPROFILE%\.gradle\gradle.properties` (Windows). Create the file if it doesn't exist:
 
 ```properties
-# macOS example
+# macOS — ~/.gradle/gradle.properties
 org.gradle.java.home=/Library/Java/JavaVirtualMachines/zulu-17.jdk/Contents/Home
 
-# Windows example
+# Windows — %USERPROFILE%\.gradle\gradle.properties
 org.gradle.java.home=C:\\Program Files\\jdk-17.0.18+8
 ```
 
@@ -75,7 +75,7 @@ tablet-note-app/
 ├── App.tsx                        # Mounts <Navigation />
 ├── android/
 │   ├── build.gradle               # AGP 8.1.1, compileSdk 34, androidx pins
-│   ├── gradle.properties          # JDK 17 path, Hermes, new arch flags
+│   ├── gradle.properties          # Hermes, new arch flags (committed; JDK path goes in ~/.gradle/gradle.properties)
 │   └── app/
 │       └── src/main/java/com/tabletnoteapp/
 │           ├── MainActivity.kt            # S-Pen button key intercept (KEYCODE_STYLUS_BUTTON_PRIMARY)
@@ -84,7 +84,7 @@ tablet-note-app/
 │           │   ├── DrawingCanvas.kt       # Custom View: touch events + rendering (blank notes)
 │           │   ├── PdfDrawingView.kt      # Custom View: PDF rendering + drawing overlay
 │           │   ├── ColorGradientView.kt   # Native HSV color picker gradient view
-│           │   ├── models/Stroke.kt
+│           │   ├── models/Stroke.kt       # Stroke, StrokeStyle, ToolType enum, UndoAction sealed class
 │           │   ├── models/Point.kt        # Point (x, y, pressure)
 │           │   └── utils/BezierSmoother.kt
 │           └── reactbridge/               # RN <-> Kotlin bridge
@@ -199,4 +199,4 @@ Both `NoteEditorScreen` and `PdfViewerScreen` use the same pattern:
 
 ### Git / GitHub
 
-`android/app/build/` and `android/local.properties` are gitignored — never commit them. The debug APK is 164MB and will be rejected by GitHub.
+`android/app/build/` and `android/local.properties` are gitignored — never commit them. `android/gradle.properties` **is** committed (shared settings only). Each developer's JDK path goes in `~/.gradle/gradle.properties` (never committed). The debug APK is 164MB and will be rejected by GitHub.
