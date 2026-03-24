@@ -1,6 +1,20 @@
 package com.tabletnoteapp.canvas.models
 
-enum class ToolType { PEN, ERASER, SELECT, HIGHLIGHTER, SCROLL }
+enum class ToolType { PEN, ERASER, SELECT, HIGHLIGHTER, SCROLL, TEXT, LASER }
+
+data class TextElement(
+    val id: String,
+    var text: String,
+    var x: Float,
+    var y: Float,
+    var width: Float,
+    var height: Float,
+    var fontSize: Float,
+    var color: Int,
+    var bold: Boolean,
+    var italic: Boolean,
+    var fontFamily: String,
+)
 
 data class StrokeStyle(
     val color: Int,
@@ -25,5 +39,12 @@ sealed class UndoAction {
         val indices: List<Int>,
         val scaleX: Float, val scaleY: Float,
         val pivotX: Float, val pivotY: Float,
+    ) : UndoAction()
+    data class AddText(val element: TextElement) : UndoAction()
+    data class DeleteText(val element: TextElement) : UndoAction()
+    data class EditText(
+        val id: String,
+        val before: TextElement,
+        val after: TextElement,
     ) : UndoAction()
 }

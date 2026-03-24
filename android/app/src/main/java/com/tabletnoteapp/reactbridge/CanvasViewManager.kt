@@ -7,6 +7,7 @@ import com.facebook.react.uimanager.SimpleViewManager
 import com.facebook.react.uimanager.ThemedReactContext
 import com.facebook.react.uimanager.annotations.ReactProp
 import com.tabletnoteapp.canvas.DrawingCanvas
+import com.tabletnoteapp.canvas.models.TextElement
 import com.tabletnoteapp.canvas.models.ToolType
 
 /**
@@ -58,6 +59,41 @@ class CanvasViewManager : SimpleViewManager<DrawingCanvas>() {
                 .emit("canvasPageCountChanged", Arguments.createMap().apply { putInt("total", total) })
         }
 
+        canvas.onTextTap = { docX, docY, width, height, screenX, screenY, screenW, screenH ->
+            context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                .emit("canvasTextTap", Arguments.createMap().apply {
+                    putDouble("docX", docX.toDouble())
+                    putDouble("docY", docY.toDouble())
+                    putDouble("width", width.toDouble())
+                    putDouble("height", height.toDouble())
+                    putDouble("screenX", screenX.toDouble())
+                    putDouble("screenY", screenY.toDouble())
+                    putDouble("screenW", screenW.toDouble())
+                    putDouble("screenH", screenH.toDouble())
+                })
+        }
+
+        canvas.onTextEditTap = { el, screenX, screenY, screenW, screenH ->
+            context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                .emit("canvasTextEditTap", Arguments.createMap().apply {
+                    putString("id", el.id)
+                    putString("text", el.text)
+                    putDouble("docX", el.x.toDouble())
+                    putDouble("docY", el.y.toDouble())
+                    putDouble("width", el.width.toDouble())
+                    putDouble("height", el.height.toDouble())
+                    putDouble("fontSize", el.fontSize.toDouble())
+                    putInt("color", el.color)
+                    putBoolean("bold", el.bold)
+                    putBoolean("italic", el.italic)
+                    putString("fontFamily", el.fontFamily)
+                    putDouble("screenX", screenX.toDouble())
+                    putDouble("screenY", screenY.toDouble())
+                    putDouble("screenW", screenW.toDouble())
+                    putDouble("screenH", screenH.toDouble())
+                })
+        }
+
         return canvas
     }
 
@@ -68,6 +104,8 @@ class CanvasViewManager : SimpleViewManager<DrawingCanvas>() {
             "select"      -> ToolType.SELECT
             "highlighter" -> ToolType.HIGHLIGHTER
             "scroll"      -> ToolType.SCROLL
+            "text"        -> ToolType.TEXT
+            "laser"       -> ToolType.LASER
             else          -> ToolType.PEN
         }
     }
@@ -75,6 +113,11 @@ class CanvasViewManager : SimpleViewManager<DrawingCanvas>() {
     @ReactProp(name = "penColor")
     fun setPenColor(view: DrawingCanvas, color: String?) {
         if (color != null) view.penColor = Color.parseColor(color)
+    }
+
+    @ReactProp(name = "laserColor")
+    fun setLaserColor(view: DrawingCanvas, color: String?) {
+        if (color != null) view.laserColor = Color.parseColor(color)
     }
 
     @ReactProp(name = "penThickness", defaultFloat = 4f)

@@ -1,5 +1,6 @@
 package com.tabletnoteapp.reactbridge
 
+import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import com.facebook.react.bridge.Promise
@@ -65,6 +66,31 @@ class PdfCanvasModule(private val reactContext: ReactApplicationContext) :
         } catch (e: Exception) {
             promise.reject("ERR_PDF_PAGE_COUNT", e.message)
         }
+    }
+
+    @ReactMethod
+    fun addTextElement(viewTag: Int, id: String, text: String, x: Double, y: Double, width: Double, height: Double, fontSize: Double, color: String, bold: Boolean, italic: Boolean, fontFamily: String) {
+        withView(viewTag) { it.addTextElement(id, text, x.toFloat(), y.toFloat(), width.toFloat(), height.toFloat(), fontSize.toFloat(), Color.parseColor(color), bold, italic, fontFamily) }
+    }
+
+    @ReactMethod
+    fun updateTextElement(viewTag: Int, id: String, text: String, fontSize: Double, color: String, bold: Boolean, italic: Boolean, fontFamily: String) {
+        withView(viewTag) { it.updateTextElement(id, text, fontSize.toFloat(), Color.parseColor(color), bold, italic, fontFamily) }
+    }
+
+    @ReactMethod
+    fun deleteTextElement(viewTag: Int, id: String) {
+        withView(viewTag) { it.deleteTextElement(id) }
+    }
+
+    @ReactMethod
+    fun setActiveText(viewTag: Int, id: String) {
+        withView(viewTag) { it.setActiveText(id) }
+    }
+
+    @ReactMethod
+    fun clearPendingBox(viewTag: Int) {
+        withView(viewTag) { it.clearPendingBox() }
     }
 
     private fun withView(viewTag: Int, block: (PdfDrawingView) -> Unit) {

@@ -16,4 +16,9 @@ export default {
   deleteSelected: (viewTag: number) => CanvasModule.deleteSelected(viewTag),
   captureSelected: (viewTag: number): Promise<string> => CanvasModule.captureSelected(viewTag),
   cutSelected: (viewTag: number): Promise<string> => CanvasModule.cutSelected(viewTag),
+  addTextElement: (viewTag: number, id: string, text: string, x: number, y: number, width: number, height: number, fontSize: number, color: string, bold: boolean, italic: boolean, fontFamily: string) => CanvasModule.addTextElement(viewTag, id, text, x, y, width, height, fontSize, color, bold, italic, fontFamily),
+  updateTextElement: (viewTag: number, id: string, text: string, fontSize: number, color: string, bold: boolean, italic: boolean, fontFamily: string) => CanvasModule.updateTextElement(viewTag, id, text, fontSize, color, bold, italic, fontFamily),
+  deleteTextElement: (viewTag: number, id: string) => CanvasModule.deleteTextElement(viewTag, id),
+  setActiveText: (viewTag: number, id: string) => CanvasModule.setActiveText(viewTag, id),
+  clearPendingBox: (viewTag: number) => CanvasModule.clearPendingBox(viewTag),
 };

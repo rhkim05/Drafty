@@ -19,6 +19,7 @@ interface CanvasViewProps {
   eraserMode: string;
   highlighterColor: string;
   highlighterThickness: number;
+  laserColor: string;
   style?: StyleProp<ViewStyle>;
   onLayout?: () => void;
   onSelectionChanged?: (info: SelectionInfo) => void;

@@ -1,5 +1,6 @@
 package com.tabletnoteapp.reactbridge
 
+import android.graphics.Color
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
@@ -101,6 +102,31 @@ class CanvasModule(private val reactContext: ReactApplicationContext) :
                 promise.reject("ERR_NO_VIEW", "Canvas view not found for tag $viewTag")
             }
         }
+    }
+
+    @ReactMethod
+    fun addTextElement(viewTag: Int, id: String, text: String, x: Double, y: Double, width: Double, height: Double, fontSize: Double, color: String, bold: Boolean, italic: Boolean, fontFamily: String) {
+        withCanvas(viewTag) { it.addTextElement(id, text, x.toFloat(), y.toFloat(), width.toFloat(), height.toFloat(), fontSize.toFloat(), Color.parseColor(color), bold, italic, fontFamily) }
+    }
+
+    @ReactMethod
+    fun updateTextElement(viewTag: Int, id: String, text: String, fontSize: Double, color: String, bold: Boolean, italic: Boolean, fontFamily: String) {
+        withCanvas(viewTag) { it.updateTextElement(id, text, fontSize.toFloat(), Color.parseColor(color), bold, italic, fontFamily) }
+    }
+
+    @ReactMethod
+    fun deleteTextElement(viewTag: Int, id: String) {
+        withCanvas(viewTag) { it.deleteTextElement(id) }
+    }
+
+    @ReactMethod
+    fun setActiveText(viewTag: Int, id: String) {
+        withCanvas(viewTag) { it.setActiveText(id) }
+    }
+
+    @ReactMethod
+    fun clearPendingBox(viewTag: Int) {
+        withCanvas(viewTag) { it.clearPendingBox() }
     }
 
     private fun withCanvas(viewTag: Int, block: (DrawingCanvas) -> Unit) {

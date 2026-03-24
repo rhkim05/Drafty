@@ -22,6 +22,13 @@ interface ToolState {
   highlighterColor: string;
   highlighterPresets: string[];
   highlighterThickness: number;
+  laserColor: string;
+  setLaserColor: (color: string) => void;
+  textColor: string;
+  textFontSize: number;
+  textBold: boolean;
+  textItalic: boolean;
+  textFontFamily: string;
   setTool: (tool: ToolMode) => void;
   setCanUndo: (value: boolean) => void;
   setCanRedo: (value: boolean) => void;
@@ -37,6 +44,11 @@ interface ToolState {
   addHighlighterPreset: (color: string) => void;
   removeHighlighterPreset: (index: number) => void;
   setHighlighterThickness: (value: number) => void;
+  setTextColor: (color: string) => void;
+  setTextFontSize: (size: number) => void;
+  setTextBold: (bold: boolean) => void;
+  setTextItalic: (italic: boolean) => void;
+  setTextFontFamily: (family: string) => void;
 }
 
 export const useToolStore = create<ToolState>(set => ({
@@ -51,6 +63,13 @@ export const useToolStore = create<ToolState>(set => ({
   highlighterColor: '#FFFF00',
   highlighterPresets: DEFAULT_HIGHLIGHTER_PRESETS,
   highlighterThickness: 16,
+  laserColor: '#FF3B30',
+  setLaserColor: (color) => set({ laserColor: color }),
+  textColor: '#000000',
+  textFontSize: 24,
+  textBold: false,
+  textItalic: false,
+  textFontFamily: 'sans-serif',
   setTool: (tool) => set({ activeTool: tool }),
   setCanUndo: (value) => set({ canUndo: value }),
   setCanRedo: (value) => set({ canRedo: value }),
@@ -78,4 +97,9 @@ export const useToolStore = create<ToolState>(set => ({
     highlighterPresets: state.highlighterPresets.filter((_, i) => i !== index),
   })),
   setHighlighterThickness: (value) => set({ highlighterThickness: value }),
+  setTextColor: (color) => set({ textColor: color }),
+  setTextFontSize: (size) => set({ textFontSize: size }),
+  setTextBold: (bold) => set({ textBold: bold }),
+  setTextItalic: (italic) => set({ textItalic: italic }),
+  setTextFontFamily: (family) => set({ textFontFamily: family }),
 }));

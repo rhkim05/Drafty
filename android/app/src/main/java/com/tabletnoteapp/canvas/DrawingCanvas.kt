@@ -2,6 +2,7 @@ package com.tabletnoteapp.canvas
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.DashPathEffect
@@ -10,6 +11,9 @@ import android.graphics.Path
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.RectF
+import android.text.Layout
+import android.text.StaticLayout
+import android.text.TextPaint
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.VelocityTracker
@@ -19,6 +23,7 @@ import android.widget.OverScroller
 import com.tabletnoteapp.canvas.models.Point
 import com.tabletnoteapp.canvas.models.Stroke
 import com.tabletnoteapp.canvas.models.StrokeStyle
+import com.tabletnoteapp.canvas.models.TextElement
 import com.tabletnoteapp.canvas.models.ToolType
 import com.tabletnoteapp.canvas.models.UndoAction
 import com.tabletnoteapp.canvas.utils.BezierSmoother
@@ -115,6 +120,7 @@ class DrawingCanvas(context: Context) : View(context) {
     private val committedStrokes    = mutableListOf<Stroke>()
     private val undoStack           = mutableListOf<UndoAction>()
     private val redoStack           = mutableListOf<UndoAction>()
+    private val textElements        = mutableListOf<TextElement>()
     private var activeStroke: Stroke? = null
     private val strokeEraserBuffer  = mutableListOf<Pair<Int, Stroke>>()
     private var strokeOriginalIndexMap: Map<Stroke, Int> = emptyMap()
@@ -140,6 +146,8 @@ class DrawingCanvas(context: Context) : View(context) {
     var onSelectionChanged: ((hasSelection: Boolean, count: Int, bounds: RectF) -> Unit)? = null
     var onPageChanged: ((page: Int) -> Unit)? = null
     var onPageCountChanged: ((total: Int) -> Unit)? = null
+    var onTextTap: ((docX: Float, docY: Float, docW: Float, docH: Float, screenX: Float, screenY: Float, screenW: Float, screenH: Float) -> Unit)? = null
+    var onTextEditTap: ((TextElement, screenX: Float, screenY: Float, screenW: Float, screenH: Float) -> Unit)? = null
 
     // ── Rendering ─────────────────────────────────────────────────────────────
 
@@ -169,6 +177,30 @@ class DrawingCanvas(context: Context) : View(context) {
         alpha = 120  // ~47% opacity — like a real highlighter
     }
 
+    private val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
+
+    private val textBoxBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeWidth = 1.5f
+        color = Color.argb(200, 30, 120, 255)
+        pathEffect = DashPathEffect(floatArrayOf(10f, 6f), 0f)
+    }
+    private val textBoxFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.argb(15, 30, 120, 255)
+    }
+
+    // Text drag state
+    private var textDragStartX = 0f
+    private var textDragStartY = 0f
+    private var textDragStartScreenX = 0f
+    private var textDragStartScreenY = 0f
+    private val textDragRect = RectF()
+    private var isTextDragging = false
+
+    // Active / pending text box state
+    private var activeTextId: String? = null     // element currently being edited (shows border)
+    private var pendingBoxRect: RectF? = null    // drawn but not yet committed (no element yet)
+
     private val strokeEraserFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
         color = Color.argb(55, 150, 150, 150)
@@ -182,6 +214,31 @@ class DrawingCanvas(context: Context) : View(context) {
     private var eraserCursorX = 0f
     private var eraserCursorY = 0f
     private var showEraserCursor = false
+
+    // ── Laser state ────────────────────────────────────────────────────────────
+
+    var laserColor: Int = Color.RED
+    private val laserPoints = mutableListOf<android.graphics.PointF>()
+    // Outer blurred glow
+    private val laserGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+        strokeWidth = 22f
+        maskFilter = BlurMaskFilter(14f, BlurMaskFilter.Blur.NORMAL)
+    }
+    // Crisp bright core
+    private val laserCorePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+        strokeWidth = 3.5f
+    }
+    // White hot-spot dot at the tip
+    private val laserHotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.WHITE
+    }
+    private var laserFadeStart = 0L
+    private val LASER_FADE_MS  = 600L
 
     // ── Selector state (retained; SELECT tool currently scrolls) ──────────────
 
@@ -266,6 +323,14 @@ class DrawingCanvas(context: Context) : View(context) {
             }
         }
 
+        for (el in textElements) {
+            el.x = el.x * ratio
+            el.y = remapY(el.y)
+            el.width = el.width * ratio
+            el.height = el.height * ratio
+            el.fontSize = el.fontSize * ratio
+        }
+
         // Restore scroll so the same content stays at screen centre.
         scrollY    = remapY(logCenterYOld) * scale - height / 2f
         rawScrollY = scrollY
@@ -280,11 +345,39 @@ class DrawingCanvas(context: Context) : View(context) {
         }
     }
 
-    private fun scaleUndoAction(action: UndoAction, ratio: Float): UndoAction = when (action) {
-        is UndoAction.AddStroke     -> action  // stroke points already scaled above
-        is UndoAction.EraseStrokes  -> action  // stroke points already scaled above
-        is UndoAction.MoveStrokes   -> action.copy(dx = action.dx * ratio, dy = action.dy * ratio)
-        is UndoAction.ResizeStrokes -> action.copy(pivotX = action.pivotX * ratio, pivotY = action.pivotY * ratio)
+    private fun scaleUndoAction(action: UndoAction, ratio: Float): UndoAction {
+        val oldPageH = pageHeightPx
+        val gap      = PAGE_GAP
+        fun remapY(y: Float): Float {
+            if (oldPageH + gap <= 0f) return y * ratio
+            val pageIdx = (y / (oldPageH + gap)).toInt().coerceAtLeast(0)
+            val yInPage = y - pageIdx * (oldPageH + gap)
+            return pageIdx * (oldPageH * ratio + gap) + yInPage * ratio
+        }
+        return when (action) {
+            is UndoAction.AddStroke     -> action  // stroke points already scaled above
+            is UndoAction.EraseStrokes  -> action  // stroke points already scaled above
+            is UndoAction.MoveStrokes   -> action.copy(dx = action.dx * ratio, dy = action.dy * ratio)
+            is UndoAction.ResizeStrokes -> action.copy(pivotX = action.pivotX * ratio, pivotY = action.pivotY * ratio)
+            is UndoAction.AddText       -> action  // element reference is mutated in-place above
+            is UndoAction.DeleteText    -> action  // removed element; same limitation as EraseStrokes
+            is UndoAction.EditText      -> action.copy(
+                before = action.before.copy(
+                    x = action.before.x * ratio,
+                    y = remapY(action.before.y),
+                    width = action.before.width * ratio,
+                    height = action.before.height * ratio,
+                    fontSize = action.before.fontSize * ratio,
+                ),
+                after = action.after.copy(
+                    x = action.after.x * ratio,
+                    y = remapY(action.after.y),
+                    width = action.after.width * ratio,
+                    height = action.after.height * ratio,
+                    fontSize = action.after.fontSize * ratio,
+                ),
+            )
+        }
     }
 
     private fun reLayoutPages(viewWidth: Int, fromScratch: Boolean = false) {
@@ -347,6 +440,48 @@ class DrawingCanvas(context: Context) : View(context) {
         if (layerSave != -1) canvas.restoreToCount(layerSave)
         canvas.restore()  // remove page clip
 
+        // Draw text elements live (above strokes, page-clipped)
+        canvas.save()
+        canvas.clipPath(buildPageClipPath())
+        for (el in textElements) {
+            val boxRect = RectF(el.x, el.y, el.x + el.width, el.y + el.height)
+            if (el.id == activeTextId) {
+                // Active (being edited): show border+fill only — JS TextInput handles the visible text
+                canvas.drawRect(boxRect, textBoxFillPaint)
+                canvas.drawRect(boxRect, textBoxBorderPaint)
+            } else {
+                // Committed: show text, no border/fill
+                textPaint.color = el.color
+                textPaint.textSize = el.fontSize
+                textPaint.typeface = android.graphics.Typeface.create(el.fontFamily, when {
+                    el.bold && el.italic -> android.graphics.Typeface.BOLD_ITALIC
+                    el.bold -> android.graphics.Typeface.BOLD
+                    el.italic -> android.graphics.Typeface.ITALIC
+                    else -> android.graphics.Typeface.NORMAL
+                })
+                val sl = StaticLayout.Builder
+                    .obtain(el.text, 0, el.text.length, textPaint, el.width.toInt().coerceAtLeast(1))
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                    .setLineSpacing(0f, 1.2f)
+                    .build()
+                canvas.save()
+                canvas.translate(el.x, el.y)
+                sl.draw(canvas)
+                canvas.restore()
+            }
+        }
+        // Pending box: drawn but not yet committed as a text element
+        pendingBoxRect?.let {
+            canvas.drawRect(it, textBoxFillPaint)
+            canvas.drawRect(it, textBoxBorderPaint)
+        }
+        // Rubber-band rect during active drag
+        if (isTextDragging && !textDragRect.isEmpty) {
+            canvas.drawRect(textDragRect, textBoxFillPaint)
+            canvas.drawRect(textDragRect, textBoxBorderPaint)
+        }
+        canvas.restore()
+
         canvas.restore()  // remove translate + scale
 
         // 5. Eraser cursor — fixed screen size regardless of zoom
@@ -383,6 +518,35 @@ class DrawingCanvas(context: Context) : View(context) {
             else -> {}
         }
         canvas.restore()
+
+        // 7. Laser pointer (screen space, always on top)
+        if (laserPoints.isNotEmpty()) {
+            val elapsed = if (laserFadeStart > 0L) android.os.SystemClock.uptimeMillis() - laserFadeStart else 0L
+            if (laserFadeStart > 0L && elapsed >= LASER_FADE_MS) {
+                laserPoints.clear(); laserFadeStart = 0L
+            } else {
+                val baseAlpha = if (laserFadeStart == 0L) 255
+                                else ((1f - elapsed.toFloat() / LASER_FADE_MS) * 255).toInt().coerceIn(0, 255)
+                val n = laserPoints.size
+                laserGlowPaint.color = laserColor
+                laserCorePaint.color = laserColor
+                // Draw segment-by-segment: tail → transparent, head → opaque
+                for (i in 1 until n) {
+                    val frac = i.toFloat() / n
+                    val segAlpha = (frac * baseAlpha).toInt()
+                    laserGlowPaint.alpha = (segAlpha * 0.38f).toInt()
+                    canvas.drawLine(laserPoints[i-1].x, laserPoints[i-1].y,
+                                    laserPoints[i].x,   laserPoints[i].y, laserGlowPaint)
+                    laserCorePaint.alpha = segAlpha
+                    canvas.drawLine(laserPoints[i-1].x, laserPoints[i-1].y,
+                                    laserPoints[i].x,   laserPoints[i].y, laserCorePaint)
+                }
+                // Bright white hot-spot at tip
+                laserHotPaint.alpha = (baseAlpha * 0.9f).toInt()
+                canvas.drawCircle(laserPoints.last().x, laserPoints.last().y, 5f, laserHotPaint)
+                if (laserFadeStart > 0L) postInvalidateOnAnimation()
+            }
+        }
     }
 
     private fun buildPageClipPath(): Path {
@@ -416,13 +580,14 @@ class DrawingCanvas(context: Context) : View(context) {
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        // Finger always scrolls/pans regardless of active tool.
-        // Stylus (pen tip or eraser end) uses the active tool.
         val isFinger = event.getToolType(0) == MotionEvent.TOOL_TYPE_FINGER
         when {
-            isFinger || currentTool == ToolType.SCROLL -> handleScroll(event)
-            currentTool == ToolType.SELECT             -> handleSelect(event)
-            else                                       -> handleDraw(event)
+            // Finger always scrolls — even during text/select tools (stylus-only drawing)
+            isFinger || currentTool == ToolType.SCROLL      -> handleScroll(event)
+            currentTool == ToolType.LASER                   -> handleLaser(event)
+            currentTool == ToolType.TEXT                    -> handleText(event)
+            currentTool == ToolType.SELECT                  -> handleSelect(event)
+            else                                            -> handleDraw(event)
         }
         return true
     }
@@ -478,6 +643,9 @@ class DrawingCanvas(context: Context) : View(context) {
                 for (i in stroke.points.indices) {
                     stroke.points[i] = stroke.points[i].copy(y = stroke.points[i].y + shift)
                 }
+            }
+            for (el in textElements) {
+                el.y += shift
             }
             scrollY = (scrollY + shift * scale).coerceAtLeast(0f)
             rawScrollY = scrollY
@@ -661,6 +829,84 @@ class DrawingCanvas(context: Context) : View(context) {
         }
     }
 
+    // ── Laser tool handling ───────────────────────────────────────────────────
+
+    private fun handleLaser(event: MotionEvent) {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                parent?.requestDisallowInterceptTouchEvent(true)
+                laserFadeStart = 0L
+                laserPoints.clear()
+                laserPoints.add(android.graphics.PointF(event.x, event.y))
+                invalidate()
+            }
+            MotionEvent.ACTION_MOVE -> {
+                laserPoints.add(android.graphics.PointF(event.x, event.y))
+                if (laserPoints.size > 40) laserPoints.removeAt(0)
+                invalidate()
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                laserFadeStart = android.os.SystemClock.uptimeMillis()
+                invalidate()
+            }
+        }
+    }
+
+    // ── Text tool handling ────────────────────────────────────────────────────
+
+    private fun handleText(event: MotionEvent) {
+        val xDoc = toLogicalX(event.x)
+        val yDoc = toLogicalY(event.y)
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                val hit = hitTestTextElement(xDoc, yDoc)
+                if (hit != null) {
+                    activeTextId = hit.id
+                    pendingBoxRect = null
+                    invalidate()
+                    onTextEditTap?.invoke(hit,
+                        hit.x * scale + translateX, hit.y * scale - scrollY,
+                        hit.width * scale, hit.height * scale)
+                } else {
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    textDragStartX = xDoc; textDragStartY = yDoc
+                    textDragRect.set(xDoc, yDoc, xDoc, yDoc)
+                    isTextDragging = true
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (!isTextDragging) return
+                textDragRect.set(
+                    minOf(textDragStartX, xDoc), minOf(textDragStartY, yDoc),
+                    maxOf(textDragStartX, xDoc), maxOf(textDragStartY, yDoc),
+                )
+                invalidate()
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (!isTextDragging) return
+                isTextDragging = false
+                val w = textDragRect.width(); val h = textDragRect.height()
+                if (w > 20f && h > 20f) {
+                    activeTextId = null
+                    pendingBoxRect = RectF(textDragRect)
+                    onTextTap?.invoke(textDragRect.left, textDragRect.top, w, h,
+                        textDragRect.left * scale + translateX, textDragRect.top * scale - scrollY,
+                        w * scale, h * scale)
+                }
+                textDragRect.setEmpty()
+                invalidate()
+            }
+        }
+    }
+
+    private fun hitTestTextElement(x: Float, y: Float): TextElement? {
+        for (el in textElements.reversed()) {
+            val bounds = RectF(el.x, el.y, el.x + el.width, el.y + el.height)
+            if (bounds.contains(x, y)) return el
+        }
+        return null
+    }
+
     // ── Selector helpers (retained for future fix) ────────────────────────────
 
     private var accumulatedMoveX = 0f
@@ -788,6 +1034,48 @@ class DrawingCanvas(context: Context) : View(context) {
         redoStack.clear(); clearSelection(); redrawBitmap(); notifyUndoRedoState()
     }
 
+    fun setActiveText(id: String) {
+        activeTextId = if (id.isEmpty()) null else id
+        invalidate()
+    }
+
+    fun clearPendingBox() {
+        pendingBoxRect = null
+        invalidate()
+    }
+
+    fun addTextElement(id: String, text: String, x: Float, y: Float, width: Float, height: Float, fontSize: Float, color: Int, bold: Boolean, italic: Boolean, fontFamily: String) {
+        pendingBoxRect = null   // pending box is now realized as an element
+        val el = TextElement(id, text, x, y, width, height, fontSize, color, bold, italic, fontFamily)
+        textElements.add(el)
+        undoStack.add(UndoAction.AddText(el))
+        redoStack.clear()
+        notifyUndoRedoState()
+        invalidate()
+    }
+
+    fun updateTextElement(id: String, text: String, fontSize: Float, color: Int, bold: Boolean, italic: Boolean, fontFamily: String) {
+        val el = textElements.find { it.id == id } ?: return
+        val before = el.copy()
+        el.text = text; el.fontSize = fontSize; el.color = color
+        el.bold = bold; el.italic = italic; el.fontFamily = fontFamily
+        undoStack.add(UndoAction.EditText(id, before, el.copy()))
+        redoStack.clear()
+        if (activeTextId == id) activeTextId = null   // auto-clear active state
+        notifyUndoRedoState()
+        invalidate()
+    }
+
+    fun deleteTextElement(id: String) {
+        if (activeTextId == id) activeTextId = null
+        val el = textElements.find { it.id == id } ?: return
+        textElements.remove(el)
+        undoStack.add(UndoAction.DeleteText(el))
+        redoStack.clear()
+        notifyUndoRedoState()
+        invalidate()
+    }
+
     fun getSelectedStrokesJson(): String {
         val arr = JSONArray()
         for (idx in selectedIndices) {
@@ -904,6 +1192,15 @@ class DrawingCanvas(context: Context) : View(context) {
                 }
                 updateSelectionBounds()
             }
+            is UndoAction.AddText -> textElements.remove(action.element)
+            is UndoAction.DeleteText -> textElements.add(action.element)
+            is UndoAction.EditText -> {
+                val el = textElements.find { it.id == action.id } ?: return
+                el.text = action.before.text; el.fontSize = action.before.fontSize
+                el.width = action.before.width; el.height = action.before.height
+                el.color = action.before.color; el.bold = action.before.bold
+                el.italic = action.before.italic; el.fontFamily = action.before.fontFamily
+            }
         }
         redrawBitmap()
         redoStack.add(action)
@@ -950,6 +1247,15 @@ class DrawingCanvas(context: Context) : View(context) {
                     }
                 }
                 redrawBitmap(); updateSelectionBounds()
+            }
+            is UndoAction.AddText -> textElements.add(action.element)
+            is UndoAction.DeleteText -> textElements.remove(action.element)
+            is UndoAction.EditText -> {
+                val el = textElements.find { it.id == action.id } ?: return
+                el.text = action.after.text; el.fontSize = action.after.fontSize
+                el.width = action.after.width; el.height = action.after.height
+                el.color = action.after.color; el.bold = action.after.bold
+                el.italic = action.after.italic; el.fontFamily = action.after.fontFamily
             }
         }
         undoStack.add(action)
@@ -1015,6 +1321,9 @@ class DrawingCanvas(context: Context) : View(context) {
         committedStrokes.clear()
         undoStack.clear()
         redoStack.clear()
+        textElements.clear()
+        activeTextId = null
+        pendingBoxRect = null
         clearSelection()
         pageCount = 1
         scrollY = 0f
@@ -1034,6 +1343,23 @@ class DrawingCanvas(context: Context) : View(context) {
         val arr = JSONArray()
         for (stroke in committedStrokes) arr.put(strokeToJson(stroke))
         obj.put("strokes", arr)
+        val textArr = JSONArray()
+        for (el in textElements) {
+            textArr.put(JSONObject().apply {
+                put("id", el.id)
+                put("text", el.text)
+                put("x", el.x.toDouble())
+                put("y", el.y.toDouble())
+                put("width", el.width.toDouble())
+                put("height", el.height.toDouble())
+                put("fontSize", el.fontSize.toDouble())
+                put("color", el.color)
+                put("bold", el.bold)
+                put("italic", el.italic)
+                put("fontFamily", el.fontFamily)
+            })
+        }
+        obj.put("textElements", textArr)
         return obj.toString()
     }
 
@@ -1058,6 +1384,7 @@ class DrawingCanvas(context: Context) : View(context) {
         committedStrokes.clear()
         undoStack.clear()
         redoStack.clear()
+        textElements.clear()
         clearSelection()
 
         val arr: JSONArray
@@ -1066,6 +1393,23 @@ class DrawingCanvas(context: Context) : View(context) {
             val obj = JSONObject(json)
             pageCount = obj.optInt("pageCount", 1).coerceAtLeast(1)
             arr = obj.optJSONArray("strokes") ?: JSONArray()
+            val tArr = obj.optJSONArray("textElements") ?: JSONArray()
+            for (i in 0 until tArr.length()) {
+                val t = tArr.getJSONObject(i)
+                textElements.add(TextElement(
+                    id         = t.optString("id", System.currentTimeMillis().toString()),
+                    text       = t.optString("text", ""),
+                    x          = t.getDouble("x").toFloat(),
+                    y          = t.getDouble("y").toFloat(),
+                    width      = t.optDouble("width", 200.0).toFloat(),
+                    height     = t.optDouble("height", 100.0).toFloat(),
+                    fontSize   = t.getDouble("fontSize").toFloat(),
+                    color      = t.getInt("color"),
+                    bold       = t.optBoolean("bold", false),
+                    italic     = t.optBoolean("italic", false),
+                    fontFamily = t.optString("fontFamily", "sans-serif"),
+                ))
+            }
         } else {
             // v1 format: flat array, screen-space coords → single page
             pageCount = 1

@@ -28,6 +28,17 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, onShowLabel, sh
     setHighlighterColor, setHighlighterPresetColor, addHighlighterPreset, removeHighlighterPreset, setHighlighterThickness,
   } = useToolStore();
 
+  const textColor = useToolStore(s => s.textColor);
+  const textFontSize = useToolStore(s => s.textFontSize);
+  const textBold = useToolStore(s => s.textBold);
+  const textItalic = useToolStore(s => s.textItalic);
+  const textFontFamily = useToolStore(s => s.textFontFamily);
+  const setTextColor = useToolStore(s => s.setTextColor);
+  const setTextFontSize = useToolStore(s => s.setTextFontSize);
+  const setTextBold = useToolStore(s => s.setTextBold);
+  const setTextItalic = useToolStore(s => s.setTextItalic);
+  const setTextFontFamily = useToolStore(s => s.setTextFontFamily);
+
   const [penExpanded, setPenExpanded]           = useState(false);
   const [showColorPicker, setShowColorPicker]   = useState(false);
   const [pickerKey, setPickerKey]               = useState(0);
@@ -43,9 +54,21 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, onShowLabel, sh
   const [hlPopupPos, setHlPopupPos]             = useState({ top: 60, left: 0 });
   const [hlPresetIdx, setHlPresetIdx]           = useState<number | null>(null);
 
+  const [textExpanded, setTextExpanded] = useState(false);
+  const [showTextColorPicker, setShowTextColorPicker] = useState(false);
+  const [textPickerKey, setTextPickerKey] = useState(0);
+  const [textPopupPos, setTextPopupPos] = useState({ top: 60, left: 0 });
+
+  const [laserExpanded, setLaserExpanded] = useState(false);
+  const [showLaserColorPicker, setShowLaserColorPicker] = useState(false);
+  const [laserPickerKey, setLaserPickerKey] = useState(0);
+  const [laserPopupPos, setLaserPopupPos] = useState({ top: 60, left: 0 });
+
   const penBtnRef      = useRef<TouchableOpacity>(null);
   const eraserBtnRef   = useRef<TouchableOpacity>(null);
   const hlBtnRef       = useRef<TouchableOpacity>(null);
+  const textBtnRef     = useRef<TouchableOpacity>(null);
+  const laserBtnRef    = useRef<TouchableOpacity>(null);
   const penScrollRef   = useRef<ScrollView>(null);
   const hlScrollRef    = useRef<ScrollView>(null);
 
@@ -53,6 +76,13 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, onShowLabel, sh
   const isPen        = activeTool === 'pen';
   const isEraser     = activeTool === 'eraser';
   const isHighlighter = activeTool === 'highlighter';
+  const isText       = activeTool === 'text';
+  const isLaser      = activeTool === 'laser';
+  const laserColor   = useToolStore(s => s.laserColor);
+  const setLaserColor = useToolStore(s => s.setLaserColor);
+
+  const closeTextPopup  = () => { setTextExpanded(false); setShowTextColorPicker(false); };
+  const closeLaserPopup = () => { setLaserExpanded(false); setShowLaserColorPicker(false); };
 
   const closePenPopup = () => {
     setPenExpanded(false);
@@ -61,6 +91,23 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, onShowLabel, sh
 
   const closeEraserPopup  = () => setEraserExpanded(false);
   const closeHlPopup      = () => { setHlExpanded(false); setShowHlColorPicker(false); };
+
+  const handleTextPress = () => {
+    if (isText) {
+      if (!textExpanded) {
+        textBtnRef.current?.measureInWindow((x, y, _w, h) => {
+          setTextPopupPos({ top: y + h + 6, left: x });
+        });
+      }
+      onShowLabel?.('');
+      setTextExpanded(v => !v);
+      setShowTextColorPicker(false);
+    } else {
+      setTool('text');
+      onShowLabel?.('Text');
+      closePenPopup(); closeEraserPopup(); closeHlPopup(); closeTextPopup(); closeLaserPopup();
+    }
+  };
 
   const handleEraserPress = () => {
     if (isEraser) {
@@ -74,7 +121,7 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, onShowLabel, sh
     } else {
       setTool('eraser');
       onShowLabel?.('Eraser');
-      closeEraserPopup(); closePenPopup(); closeHlPopup();
+      closeEraserPopup(); closePenPopup(); closeHlPopup(); closeLaserPopup();
     }
   };
 
@@ -91,7 +138,24 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, onShowLabel, sh
     } else {
       setTool('pen');
       onShowLabel?.('Pen');
-      closePenPopup(); closeEraserPopup(); closeHlPopup();
+      closePenPopup(); closeEraserPopup(); closeHlPopup(); closeLaserPopup();
+    }
+  };
+
+  const handleLaserPress = () => {
+    if (isLaser) {
+      if (!laserExpanded) {
+        laserBtnRef.current?.measureInWindow((x, y, _w, h) => {
+          setLaserPopupPos({ top: y + h + 6, left: x });
+        });
+      }
+      onShowLabel?.('');
+      setLaserExpanded(v => !v);
+      setShowLaserColorPicker(false);
+    } else {
+      setTool('laser');
+      onShowLabel?.('Laser');
+      closePenPopup(); closeEraserPopup(); closeHlPopup(); closeTextPopup(); closeLaserPopup();
     }
   };
 
@@ -108,7 +172,7 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, onShowLabel, sh
     } else {
       setTool('highlighter');
       onShowLabel?.('Highlight');
-      closePenPopup(); closeEraserPopup(); closeHlPopup();
+      closePenPopup(); closeEraserPopup(); closeHlPopup(); closeLaserPopup();
     }
   };
 
@@ -137,14 +201,14 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, onShowLabel, sh
         <View style={styles.centerSection}>
           <TouchableOpacity
             style={[styles.button, activeTool === 'scroll' && activeStyle]}
-            onPress={() => { if (activeTool !== 'scroll') { setTool('scroll'); onShowLabel?.('Scroll'); } closePenPopup(); closeEraserPopup(); closeHlPopup(); }}
+            onPress={() => { if (activeTool !== 'scroll') { setTool('scroll'); onShowLabel?.('Scroll'); } closePenPopup(); closeEraserPopup(); closeHlPopup(); closeLaserPopup(); }}
           >
             <Text style={styles.buttonIcon}>✋</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={[styles.button, activeTool === 'select' && activeStyle]}
-            onPress={() => { if (activeTool !== 'select') { setTool('select'); onShowLabel?.('Select'); } closePenPopup(); closeEraserPopup(); closeHlPopup(); }}
+            onPress={() => { if (activeTool !== 'select') { setTool('select'); onShowLabel?.('Select'); } closePenPopup(); closeEraserPopup(); closeHlPopup(); closeLaserPopup(); }}
           >
             <Text style={styles.buttonIcon}>✦</Text>
           </TouchableOpacity>
@@ -173,6 +237,22 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, onShowLabel, sh
             onPress={handleEraserPress}
           >
             <Text style={styles.buttonIcon}>⬜</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            ref={textBtnRef}
+            style={[styles.button, isText && activeStyle]}
+            onPress={handleTextPress}
+          >
+            <Text style={[styles.buttonIcon, { fontWeight: '700' }]}>T</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            ref={laserBtnRef}
+            style={[styles.button, isLaser && { backgroundColor: '#FF3B30' }]}
+            onPress={handleLaserPress}
+          >
+            <Text style={styles.buttonIcon}>🔴</Text>
           </TouchableOpacity>
         </View>
 
@@ -362,6 +442,119 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, onShowLabel, sh
           </View>
         </View>
       </Modal>
+
+      {/* ── Laser options popup ── */}
+      <Modal
+        visible={isLaser && laserExpanded}
+        transparent
+        animationType="fade"
+        onRequestClose={closeLaserPopup}
+      >
+        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={closeLaserPopup} activeOpacity={1} />
+
+        <View style={[styles.popupRow, { top: laserPopupPos.top }]}>
+          <View style={[styles.penPopup, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Text style={[styles.popupTitle, { color: theme.textSub }]}>Laser</Text>
+            <View style={[styles.hDivider, { backgroundColor: theme.border }]} />
+            <View style={{ alignItems: 'center' }}>
+              <TouchableOpacity
+                style={[styles.textColorDot, { backgroundColor: laserColor }]}
+                onPress={() => { setLaserPickerKey(k => k + 1); setShowLaserColorPicker(v => !v); }}
+              />
+            </View>
+          </View>
+        </View>
+
+        {showLaserColorPicker && (
+          <View style={[styles.popupRow, { top: laserPopupPos.top + 100 }]}>
+            <ColorPickerPanel
+              key={laserPickerKey}
+              color={laserColor}
+              presetColors={presetColors}
+              onColorChange={setLaserColor}
+              onPresetSave={() => {}}
+            />
+          </View>
+        )}
+      </Modal>
+
+      {/* ── Text options popup ── */}
+      <Modal
+        visible={isText && textExpanded}
+        transparent
+        animationType="fade"
+        onRequestClose={closeTextPopup}
+      >
+        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={closeTextPopup} activeOpacity={1} />
+
+        <View style={[styles.popupRow, { top: textPopupPos.top }]}>
+          <View style={[styles.penPopup, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Text style={[styles.popupTitle, { color: theme.textSub }]}>Text</Text>
+            <View style={[styles.hDivider, { backgroundColor: theme.border }]} />
+            {/* Bold / Italic row */}
+            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 8 }}>
+              <TouchableOpacity
+                style={[styles.fmtBtn, textBold && { backgroundColor: theme.text }]}
+                onPress={() => setTextBold(!textBold)}
+              >
+                <Text style={[styles.fmtBtnLabel, { color: textBold ? theme.surface : theme.text, fontWeight: '700' }]}>B</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.fmtBtn, textItalic && { backgroundColor: theme.text }]}
+                onPress={() => setTextItalic(!textItalic)}
+              >
+                <Text style={[styles.fmtBtnLabel, { color: textItalic ? theme.surface : theme.text, fontStyle: 'italic' }]}>I</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={[styles.hDivider, { backgroundColor: theme.border }]} />
+            {/* Font family row */}
+            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 8 }}>
+              {(['sans-serif', 'serif', 'monospace'] as const).map(family => (
+                <TouchableOpacity
+                  key={family}
+                  style={[styles.fontFamilyBtn, textFontFamily === family && { borderColor: theme.text, borderWidth: 2 }]}
+                  onPress={() => setTextFontFamily(family)}
+                >
+                  <Text style={[styles.fontFamilyBtnLabel, { color: theme.text, fontFamily: family === 'sans-serif' ? undefined : family }]}>
+                    Aa
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={[styles.hDivider, { backgroundColor: theme.border }]} />
+            {/* Font size stepper */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+              <TouchableOpacity onPress={() => setTextFontSize(Math.max(8, textFontSize - 2))} style={styles.sizeStepper}>
+                <Text style={[styles.sizeStepperText, { color: theme.text }]}>−</Text>
+              </TouchableOpacity>
+              <Text style={[styles.sizeLabel, { color: theme.text }]}>{textFontSize}pt</Text>
+              <TouchableOpacity onPress={() => setTextFontSize(Math.min(72, textFontSize + 2))} style={styles.sizeStepper}>
+                <Text style={[styles.sizeStepperText, { color: theme.text }]}>+</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={[styles.hDivider, { backgroundColor: theme.border }]} />
+            {/* Color */}
+            <View style={{ alignItems: 'center' }}>
+              <TouchableOpacity
+                style={[styles.textColorDot, { backgroundColor: textColor }]}
+                onPress={() => { setTextPickerKey(k => k + 1); setShowTextColorPicker(v => !v); }}
+              />
+            </View>
+          </View>
+        </View>
+
+        {showTextColorPicker && (
+          <View style={[styles.popupRow, { top: textPopupPos.top + 240 }]}>
+            <ColorPickerPanel
+              key={textPickerKey}
+              color={textColor}
+              presetColors={presetColors}
+              onColorChange={setTextColor}
+              onPresetSave={() => {}}
+            />
+          </View>
+        )}
+      </Modal>
     </View>
   );
 }
@@ -481,4 +674,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
   },
+  fmtBtn: { width: 36, height: 36, borderRadius: 8, borderWidth: 1.5, borderColor: '#AAA', alignItems: 'center', justifyContent: 'center' },
+  fmtBtnLabel: { fontSize: 16 },
+  fontFamilyBtn: { width: 50, height: 32, borderRadius: 6, borderWidth: 1.5, borderColor: '#CCCCCC', alignItems: 'center', justifyContent: 'center' },
+  fontFamilyBtnLabel: { fontSize: 14 },
+  sizeStepper: { width: 32, height: 32, borderRadius: 6, borderWidth: 1.5, borderColor: '#AAA', alignItems: 'center', justifyContent: 'center' },
+  sizeStepperText: { fontSize: 20, lineHeight: 24 },
+  sizeLabel: { fontSize: 15, fontWeight: '600', minWidth: 40, textAlign: 'center' },
+  textColorDot: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: '#AAA' },
 });

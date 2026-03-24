@@ -3,6 +3,9 @@ package com.tabletnoteapp.canvas
 import android.content.Context
 import android.graphics.*
 import android.graphics.pdf.PdfRenderer
+import android.text.Layout
+import android.text.StaticLayout
+import android.text.TextPaint
 import android.os.ParcelFileDescriptor
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
@@ -13,6 +16,7 @@ import android.widget.OverScroller
 import com.tabletnoteapp.canvas.models.Point
 import com.tabletnoteapp.canvas.models.Stroke
 import com.tabletnoteapp.canvas.models.StrokeStyle
+import com.tabletnoteapp.canvas.models.TextElement
 import com.tabletnoteapp.canvas.models.ToolType
 import com.tabletnoteapp.canvas.models.UndoAction
 import com.tabletnoteapp.canvas.utils.BezierSmoother
@@ -125,6 +129,26 @@ class PdfDrawingView(context: Context) : View(context) {
     private val committedStrokes   = mutableListOf<Stroke>()
     private val undoStack          = mutableListOf<UndoAction>()
     private val redoStack          = mutableListOf<UndoAction>()
+    private val textElements       = mutableListOf<TextElement>()
+    private val textPaint          = TextPaint(Paint.ANTI_ALIAS_FLAG)
+    private val textBoxBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeWidth = 1.5f
+        color = Color.argb(200, 30, 120, 255)
+        pathEffect = DashPathEffect(floatArrayOf(10f, 6f), 0f)
+    }
+    private val textBoxFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.argb(15, 30, 120, 255)
+    }
+    // Text drag state
+    private var textDragStartX = 0f
+    private var textDragStartY = 0f
+    private val textDragRect = RectF()
+    private var isTextDragging = false
+
+    // Active / pending text box state
+    private var activeTextId: String? = null
+    private var pendingBoxRect: RectF? = null
     private var activeStroke: Stroke? = null
     private val strokeEraserBuffer = mutableListOf<Pair<Int, Stroke>>()
     private var strokeOriginalIndexMap: Map<Stroke, Int> = emptyMap()
@@ -165,6 +189,27 @@ class PdfDrawingView(context: Context) : View(context) {
     private var eraserCursorX = 0f
     private var eraserCursorY = 0f
     private var showEraserCursor = false
+
+    var laserColor: Int = Color.RED
+    private val laserPoints = mutableListOf<android.graphics.PointF>()
+    private val laserGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+        strokeWidth = 22f
+        maskFilter = BlurMaskFilter(14f, BlurMaskFilter.Blur.NORMAL)
+    }
+    private val laserCorePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+        strokeWidth = 3.5f
+    }
+    private val laserHotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.WHITE
+    }
+    private var laserFadeStart = 0L
+    private val LASER_FADE_MS  = 600L
+
     private val pageBgPaint = Paint().apply { color = Color.WHITE }
 
     // ── Selection state ───────────────────────────────────────────────────────
@@ -219,6 +264,8 @@ class PdfDrawingView(context: Context) : View(context) {
     var onUndoRedoStateChanged: ((Boolean, Boolean) -> Unit)? = null
     var onEraserLift: (() -> Unit)? = null
     var onSelectionChanged:    ((hasSelection: Boolean, count: Int, bounds: RectF) -> Unit)? = null
+    var onTextTap: ((docX: Float, docY: Float, width: Float, height: Float) -> Unit)? = null
+    var onTextEditTap: ((TextElement) -> Unit)? = null
     private var lastReportedPage = -1
 
     init { setLayerType(LAYER_TYPE_SOFTWARE, null) }
@@ -360,6 +407,13 @@ class PdfDrawingView(context: Context) : View(context) {
                     stroke.style = stroke.style.copy(thickness = stroke.style.thickness * ratio)
                 }
             }
+            for (el in textElements) {
+                el.x = el.x * ratio
+                el.y = remapY(el.y)
+                el.width = el.width * ratio
+                el.height = el.height * ratio
+                el.fontSize = el.fontSize * ratio
+            }
         }
         logicalWidth = vw
 
@@ -426,6 +480,49 @@ class PdfDrawingView(context: Context) : View(context) {
         if (layerSave != -1) canvas.restoreToCount(layerSave)
         canvas.restore()  // remove page clip
 
+        // Text elements (live, page-clipped, above strokes)
+        canvas.save()
+        val textClipPath = Path()
+        for (i in pageYOffsets.indices) {
+            val ph = pageHeights.getOrNull(i) ?: continue
+            textClipPath.addRect(0f, pageYOffsets[i], width.toFloat(), pageYOffsets[i] + ph, Path.Direction.CW)
+        }
+        canvas.clipPath(textClipPath)
+        for (el in textElements) {
+            val boxRect = RectF(el.x, el.y, el.x + el.width, el.y + el.height)
+            if (el.id == activeTextId) {
+                canvas.drawRect(boxRect, textBoxFillPaint)
+                canvas.drawRect(boxRect, textBoxBorderPaint)
+            } else {
+                textPaint.color = el.color
+                textPaint.textSize = el.fontSize
+                textPaint.typeface = android.graphics.Typeface.create(el.fontFamily, when {
+                    el.bold && el.italic -> android.graphics.Typeface.BOLD_ITALIC
+                    el.bold -> android.graphics.Typeface.BOLD
+                    el.italic -> android.graphics.Typeface.ITALIC
+                    else -> android.graphics.Typeface.NORMAL
+                })
+                val sl = StaticLayout.Builder
+                    .obtain(el.text, 0, el.text.length, textPaint, el.width.toInt().coerceAtLeast(1))
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                    .setLineSpacing(0f, 1.2f)
+                    .build()
+                canvas.save()
+                canvas.translate(el.x, el.y)
+                sl.draw(canvas)
+                canvas.restore()
+            }
+        }
+        pendingBoxRect?.let {
+            canvas.drawRect(it, textBoxFillPaint)
+            canvas.drawRect(it, textBoxBorderPaint)
+        }
+        if (isTextDragging && !textDragRect.isEmpty) {
+            canvas.drawRect(textDragRect, textBoxFillPaint)
+            canvas.drawRect(textDragRect, textBoxBorderPaint)
+        }
+        canvas.restore()
+
         // 3. Selection overlays (logical space, no page clip so handles are always visible)
         when (selectState) {
             SelectState.DRAWING -> {
@@ -462,6 +559,33 @@ class PdfDrawingView(context: Context) : View(context) {
             canvas.drawCircle(eraserCursorX, eraserCursorY, r, strokeEraserBorderPaint)
         }
 
+        // 5. Laser pointer (screen space, always on top)
+        if (laserPoints.isNotEmpty()) {
+            val elapsed = if (laserFadeStart > 0L) android.os.SystemClock.uptimeMillis() - laserFadeStart else 0L
+            if (laserFadeStart > 0L && elapsed >= LASER_FADE_MS) {
+                laserPoints.clear(); laserFadeStart = 0L
+            } else {
+                val baseAlpha = if (laserFadeStart == 0L) 255
+                                else ((1f - elapsed.toFloat() / LASER_FADE_MS) * 255).toInt().coerceIn(0, 255)
+                val n = laserPoints.size
+                laserGlowPaint.color = laserColor
+                laserCorePaint.color = laserColor
+                for (i in 1 until n) {
+                    val frac = i.toFloat() / n
+                    val segAlpha = (frac * baseAlpha).toInt()
+                    laserGlowPaint.alpha = (segAlpha * 0.38f).toInt()
+                    canvas.drawLine(laserPoints[i-1].x, laserPoints[i-1].y,
+                                    laserPoints[i].x,   laserPoints[i].y, laserGlowPaint)
+                    laserCorePaint.alpha = segAlpha
+                    canvas.drawLine(laserPoints[i-1].x, laserPoints[i-1].y,
+                                    laserPoints[i].x,   laserPoints[i].y, laserCorePaint)
+                }
+                laserHotPaint.alpha = (baseAlpha * 0.9f).toInt()
+                canvas.drawCircle(laserPoints.last().x, laserPoints.last().y, 5f, laserHotPaint)
+                if (laserFadeStart > 0L) postInvalidateOnAnimation()
+            }
+        }
+
         if (!scroller.isFinished) postInvalidateOnAnimation()
     }
 
@@ -493,10 +617,11 @@ class PdfDrawingView(context: Context) : View(context) {
         val isScrollbarDown = event.actionMasked == MotionEvent.ACTION_DOWN && isOnScrollbar(event.x, event.y)
         if (isScrollbarDragging || isScrollbarDown) return handleScrollbar(event)
 
-        // Finger always scrolls/pans regardless of active tool.
-        // Stylus (pen tip or eraser end) uses the active tool.
         val isFinger = event.getToolType(0) == MotionEvent.TOOL_TYPE_FINGER
+        // Finger always scrolls — stylus-only for drawing/text
         if (isFinger || currentTool == ToolType.SCROLL || currentTool == ToolType.SELECT) return handleScroll(event)
+        if (currentTool == ToolType.LASER) return handleLaser(event)
+        if (currentTool == ToolType.TEXT) return handleText(event)
 
         // Stylus in draw mode
         return handleDraw(event)
@@ -670,6 +795,82 @@ class PdfDrawingView(context: Context) : View(context) {
         return true
     }
 
+    // ── Laser tool handling ───────────────────────────────────────────────────
+
+    private fun handleLaser(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                parent?.requestDisallowInterceptTouchEvent(true)
+                laserFadeStart = 0L
+                laserPoints.clear()
+                laserPoints.add(android.graphics.PointF(event.x, event.y))
+                invalidate()
+            }
+            MotionEvent.ACTION_MOVE -> {
+                laserPoints.add(android.graphics.PointF(event.x, event.y))
+                if (laserPoints.size > 40) laserPoints.removeAt(0)
+                invalidate()
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                laserFadeStart = android.os.SystemClock.uptimeMillis()
+                invalidate()
+            }
+        }
+        return true
+    }
+
+    // ── Text tool handling ────────────────────────────────────────────────────
+
+    private fun handleText(event: MotionEvent): Boolean {
+        val xDoc = toLogicalX(event.x)
+        val yDoc = toLogicalY(event.y)
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                val hit = hitTestTextElement(xDoc, yDoc)
+                if (hit != null) {
+                    activeTextId = hit.id
+                    pendingBoxRect = null
+                    invalidate()
+                    onTextEditTap?.invoke(hit)
+                } else {
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    textDragStartX = xDoc; textDragStartY = yDoc
+                    textDragRect.set(xDoc, yDoc, xDoc, yDoc)
+                    isTextDragging = true
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (!isTextDragging) return true
+                textDragRect.set(
+                    minOf(textDragStartX, xDoc), minOf(textDragStartY, yDoc),
+                    maxOf(textDragStartX, xDoc), maxOf(textDragStartY, yDoc),
+                )
+                invalidate()
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (!isTextDragging) return true
+                isTextDragging = false
+                val w = textDragRect.width(); val h = textDragRect.height()
+                if (w > 20f && h > 20f) {
+                    activeTextId = null
+                    pendingBoxRect = RectF(textDragRect)
+                    onTextTap?.invoke(textDragRect.left, textDragRect.top, w, h)
+                }
+                textDragRect.setEmpty()
+                invalidate()
+            }
+        }
+        return true
+    }
+
+    private fun hitTestTextElement(x: Float, y: Float): TextElement? {
+        for (el in textElements.reversed()) {
+            val bounds = RectF(el.x, el.y, el.x + el.width, el.y + el.height)
+            if (bounds.contains(x, y)) return el
+        }
+        return null
+    }
+
     // ── Selection ─────────────────────────────────────────────────────────────
 
     private fun handleSelect(event: MotionEvent) {
@@ -822,6 +1023,48 @@ class PdfDrawingView(context: Context) : View(context) {
         redoStack.clear(); clearSelection(); notifyUndoRedoState(); invalidate()
     }
 
+    fun setActiveText(id: String) {
+        activeTextId = if (id.isEmpty()) null else id
+        invalidate()
+    }
+
+    fun clearPendingBox() {
+        pendingBoxRect = null
+        invalidate()
+    }
+
+    fun addTextElement(id: String, text: String, x: Float, y: Float, width: Float, height: Float, fontSize: Float, color: Int, bold: Boolean, italic: Boolean, fontFamily: String) {
+        pendingBoxRect = null
+        val el = TextElement(id, text, x, y, width, height, fontSize, color, bold, italic, fontFamily)
+        textElements.add(el)
+        undoStack.add(UndoAction.AddText(el))
+        redoStack.clear()
+        notifyUndoRedoState()
+        invalidate()
+    }
+
+    fun updateTextElement(id: String, text: String, fontSize: Float, color: Int, bold: Boolean, italic: Boolean, fontFamily: String) {
+        val el = textElements.find { it.id == id } ?: return
+        val before = el.copy()
+        el.text = text; el.fontSize = fontSize; el.color = color
+        el.bold = bold; el.italic = italic; el.fontFamily = fontFamily
+        undoStack.add(UndoAction.EditText(id, before, el.copy()))
+        redoStack.clear()
+        if (activeTextId == id) activeTextId = null
+        notifyUndoRedoState()
+        invalidate()
+    }
+
+    fun deleteTextElement(id: String) {
+        if (activeTextId == id) activeTextId = null
+        val el = textElements.find { it.id == id } ?: return
+        textElements.remove(el)
+        undoStack.add(UndoAction.DeleteText(el))
+        redoStack.clear()
+        notifyUndoRedoState()
+        invalidate()
+    }
+
     private fun drawHandle(canvas: Canvas, x: Float, y: Float) {
         canvas.drawCircle(x, y, HANDLE_RADIUS, handleFillPaint)
         canvas.drawCircle(x, y, HANDLE_RADIUS, handleBorderPaint)
@@ -882,6 +1125,15 @@ class PdfDrawingView(context: Context) : View(context) {
                 }
             }
             is UndoAction.MoveStrokes, is UndoAction.ResizeStrokes -> { /* not used in PDF view */ }
+            is UndoAction.AddText -> { textElements.remove(action.element) }
+            is UndoAction.DeleteText -> { textElements.add(action.element) }
+            is UndoAction.EditText -> {
+                val el = textElements.find { it.id == action.id } ?: return
+                el.text = action.before.text; el.fontSize = action.before.fontSize
+                el.width = action.before.width; el.height = action.before.height
+                el.color = action.before.color; el.bold = action.before.bold
+                el.italic = action.before.italic; el.fontFamily = action.before.fontFamily
+            }
         }
         redoStack.add(action)
         notifyUndoRedoState(); invalidate()
@@ -893,6 +1145,15 @@ class PdfDrawingView(context: Context) : View(context) {
             is UndoAction.AddStroke    -> committedStrokes.add(action.stroke)
             is UndoAction.EraseStrokes -> committedStrokes.removeAll(action.entries.map { it.second }.toSet())
             is UndoAction.MoveStrokes, is UndoAction.ResizeStrokes -> { /* not used in PDF view */ }
+            is UndoAction.AddText -> { textElements.add(action.element) }
+            is UndoAction.DeleteText -> { textElements.remove(action.element) }
+            is UndoAction.EditText -> {
+                val el = textElements.find { it.id == action.id } ?: return
+                el.text = action.after.text; el.fontSize = action.after.fontSize
+                el.width = action.after.width; el.height = action.after.height
+                el.color = action.after.color; el.bold = action.after.bold
+                el.italic = action.after.italic; el.fontFamily = action.after.fontFamily
+            }
         }
         undoStack.add(action)
         notifyUndoRedoState(); invalidate()
@@ -900,30 +1161,70 @@ class PdfDrawingView(context: Context) : View(context) {
 
     fun clearCanvas() {
         committedStrokes.clear(); undoStack.clear(); redoStack.clear()
+        textElements.clear()
+        activeTextId = null; pendingBoxRect = null
         notifyUndoRedoState(); invalidate()
     }
 
     // ── Serialization (logical document coordinates) ──────────────────────────
 
     fun getStrokesJson(): String {
+        val obj = JSONObject()
+        obj.put("version", 2)
         val arr = JSONArray()
         for (s in committedStrokes) {
-            val obj = JSONObject()
-            obj.put("tool",      s.style.tool.name)
-            obj.put("color",     s.style.color)
-            obj.put("thickness", s.style.thickness.toDouble())
+            val sObj = JSONObject()
+            sObj.put("tool", s.style.tool.name)
+            sObj.put("color", s.style.color)
+            sObj.put("thickness", s.style.thickness.toDouble())
             val pts = JSONArray()
             for (p in s.points) pts.put(JSONObject().apply {
                 put("x", p.x.toDouble()); put("y", p.y.toDouble()); put("pressure", p.pressure.toDouble())
             })
-            obj.put("points", pts); arr.put(obj)
+            sObj.put("points", pts); arr.put(sObj)
         }
-        return arr.toString()
+        obj.put("strokes", arr)
+        val textArr = JSONArray()
+        for (el in textElements) {
+            textArr.put(JSONObject().apply {
+                put("id", el.id); put("text", el.text)
+                put("x", el.x.toDouble()); put("y", el.y.toDouble())
+                put("width", el.width.toDouble()); put("height", el.height.toDouble())
+                put("fontSize", el.fontSize.toDouble()); put("color", el.color)
+                put("bold", el.bold); put("italic", el.italic); put("fontFamily", el.fontFamily)
+            })
+        }
+        obj.put("textElements", textArr)
+        return obj.toString()
     }
 
     fun loadStrokesJson(json: String) {
         committedStrokes.clear(); undoStack.clear(); redoStack.clear()
-        val arr = JSONArray(json)
+        textElements.clear()
+        val arr: JSONArray
+        if (json.trimStart().startsWith('{')) {
+            val obj = JSONObject(json)
+            arr = obj.optJSONArray("strokes") ?: JSONArray()
+            val tArr = obj.optJSONArray("textElements") ?: JSONArray()
+            for (i in 0 until tArr.length()) {
+                val t = tArr.getJSONObject(i)
+                textElements.add(TextElement(
+                    id         = t.optString("id", System.currentTimeMillis().toString()),
+                    text       = t.optString("text", ""),
+                    x          = t.getDouble("x").toFloat(),
+                    y          = t.getDouble("y").toFloat(),
+                    width      = t.optDouble("width", 200.0).toFloat(),
+                    height     = t.optDouble("height", 100.0).toFloat(),
+                    fontSize   = t.getDouble("fontSize").toFloat(),
+                    color      = t.getInt("color"),
+                    bold       = t.optBoolean("bold", false),
+                    italic     = t.optBoolean("italic", false),
+                    fontFamily = t.optString("fontFamily", "sans-serif"),
+                ))
+            }
+        } else {
+            arr = JSONArray(json)
+        }
         for (i in 0 until arr.length()) {
             val obj  = arr.getJSONObject(i)
             val tool = try { ToolType.valueOf(obj.getString("tool")) } catch (_: Exception) { ToolType.PEN }

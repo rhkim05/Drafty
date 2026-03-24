@@ -57,6 +57,17 @@ export default function PdfViewerScreen({ route, navigation }: Props) {
   }, [labelOpacity]);
   const [pageInputText, setPageInputText] = useState('');
   const [selectionInfo, setSelectionInfo] = useState<SelectionInfo | null>(null);
+  const [activeTextBox, setActiveTextBox] = useState<{
+    id: string | null;
+    docX: number; docY: number; width: number; height: number;
+  } | null>(null);
+  const [activeTextInput, setActiveTextInput] = useState('');
+  const [localTextBold, setLocalTextBold] = useState(false);
+  const [localTextItalic, setLocalTextItalic] = useState(false);
+  const [localTextFontSize, setLocalTextFontSize] = useState(24);
+  const [localTextFontFamily, setLocalTextFontFamily] = useState('sans-serif');
+  const [localTextColor, setLocalTextColor] = useState('#000000');
+  const textInputRef = useRef<TextInput>(null);
   const viewRef = useRef<any>(null);
   const strokesLoadedRef = useRef(false);
   const updateNote = useNotebookStore(s => s.updateNote);
@@ -67,6 +78,12 @@ export default function PdfViewerScreen({ route, navigation }: Props) {
   const penColor             = useToolStore(s => s.penColor);
   const highlighterColor     = useToolStore(s => s.highlighterColor);
   const highlighterThickness = useToolStore(s => s.highlighterThickness);
+  const laserColor           = useToolStore(s => s.laserColor);
+  const textColor            = useToolStore(s => s.textColor);
+  const textFontSize         = useToolStore(s => s.textFontSize);
+  const textBold             = useToolStore(s => s.textBold);
+  const textItalic           = useToolStore(s => s.textItalic);
+  const textFontFamily       = useToolStore(s => s.textFontFamily);
 
   // Default to scroll mode on entry
   useEffect(() => {
@@ -102,6 +119,56 @@ export default function PdfViewerScreen({ route, navigation }: Props) {
     return () => { pageSub.remove(); selSub.remove(); loadSub.remove(); };
   }, [note.lastPage]);
 
+  // Auto-focus text input when panel opens
+  useEffect(() => {
+    if (activeTextBox) {
+      const t = setTimeout(() => textInputRef.current?.focus(), 80);
+      return () => clearTimeout(t);
+    }
+  }, [activeTextBox !== null]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Cancel editing when tool changes away from text
+  useEffect(() => {
+    if (activeTool !== 'text' && activeTextBox) {
+      const tag = findNodeHandle(viewRef.current);
+      if (tag) {
+        if (activeTextBox.id === null) PdfCanvasModule.clearPendingBox(tag);
+        else PdfCanvasModule.setActiveText(tag, '');
+      }
+      setActiveTextBox(null);
+    }
+  }, [activeTool]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Listen for text tap events from Kotlin
+  useEffect(() => {
+    const newTextSub = DeviceEventEmitter.addListener('pdfCanvasTextTap', ({ docX, docY, width, height }: { docX: number; docY: number; width: number; height: number }) => {
+      setActiveTextBox({ id: null, docX, docY, width, height });
+      setActiveTextInput('');
+      setLocalTextBold(textBold);
+      setLocalTextItalic(textItalic);
+      setLocalTextFontSize(textFontSize);
+      setLocalTextFontFamily(textFontFamily);
+      setLocalTextColor(textColor);
+    });
+    const editTextSub = DeviceEventEmitter.addListener('pdfCanvasTextEditTap', (el: {
+      id: string; text: string; docX: number; docY: number; width: number; height: number;
+      fontSize: number; color: number; bold: boolean; italic: boolean; fontFamily: string;
+    }) => {
+      const r = (el.color >> 16) & 0xFF;
+      const g = (el.color >> 8) & 0xFF;
+      const b = el.color & 0xFF;
+      const colorHex = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+      setActiveTextBox({ id: el.id, docX: el.docX, docY: el.docY, width: el.width, height: el.height });
+      setActiveTextInput(el.text);
+      setLocalTextBold(el.bold);
+      setLocalTextItalic(el.italic);
+      setLocalTextFontSize(Math.round(el.fontSize));
+      setLocalTextFontFamily(el.fontFamily);
+      setLocalTextColor(colorHex);
+    });
+    return () => { newTextSub.remove(); editTextSub.remove(); };
+  }, [textBold, textItalic, textFontSize, textFontFamily, textColor]);
+
   // Load saved strokes once on initial layout only — must not re-run on rotation,
   // because reLayoutPages in Kotlin already rescales coordinates in-place.
   const handleViewLayout = useCallback(async () => {
@@ -126,7 +193,12 @@ export default function PdfViewerScreen({ route, navigation }: Props) {
         PdfCanvasModule.getScale(tag),
       ]);
       updateNote(note.id, { lastScale: scale });
-      if (json === '[]') return;
+      try {
+        const parsed = JSON.parse(json);
+        const strokes = Array.isArray(parsed) ? parsed : (parsed.strokes ?? []);
+        const textEls = Array.isArray(parsed) ? [] : (parsed.textElements ?? []);
+        if (strokes.length === 0 && textEls.length === 0) return;
+      } catch (_) { return; }
       await RNFS.mkdir(DRAWINGS_DIR);
       const filePath = `${DRAWINGS_DIR}/${note.id}.json`;
       await RNFS.writeFile(filePath, json, 'utf8');
@@ -164,6 +236,41 @@ export default function PdfViewerScreen({ route, navigation }: Props) {
     const tag = findNodeHandle(viewRef.current);
     if (tag) PdfCanvasModule.redo(tag);
   }, []);
+
+  const handleTextConfirm = useCallback(() => {
+    const tag = findNodeHandle(viewRef.current);
+    if (!tag || !activeTextBox) return;
+    const text = activeTextInput.trim();
+    if (!text) {
+      if (activeTextBox.id === null) PdfCanvasModule.clearPendingBox(tag);
+      else PdfCanvasModule.setActiveText(tag, '');
+      setActiveTextBox(null);
+      return;
+    }
+    if (activeTextBox.id === null) {
+      const id = `text_${Date.now()}`;
+      PdfCanvasModule.addTextElement(tag, id, text, activeTextBox.docX, activeTextBox.docY, activeTextBox.width, activeTextBox.height, localTextFontSize, localTextColor, localTextBold, localTextItalic, localTextFontFamily);
+    } else {
+      PdfCanvasModule.updateTextElement(tag, activeTextBox.id, text, localTextFontSize, localTextColor, localTextBold, localTextItalic, localTextFontFamily);
+    }
+    setActiveTextBox(null);
+  }, [activeTextInput, activeTextBox, localTextFontSize, localTextColor, localTextBold, localTextItalic, localTextFontFamily]);
+
+  const handleTextCancel = useCallback(() => {
+    const tag = findNodeHandle(viewRef.current);
+    if (tag && activeTextBox) {
+      if (activeTextBox.id === null) PdfCanvasModule.clearPendingBox(tag);
+      else PdfCanvasModule.setActiveText(tag, '');
+    }
+    setActiveTextBox(null);
+  }, [activeTextBox]);
+
+  const handleTextDelete = useCallback(() => {
+    if (!activeTextBox?.id) return;
+    const tag = findNodeHandle(viewRef.current);
+    if (tag) PdfCanvasModule.deleteTextElement(tag, activeTextBox.id);
+    setActiveTextBox(null);
+  }, [activeTextBox]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -209,6 +316,7 @@ export default function PdfViewerScreen({ route, navigation }: Props) {
           eraserMode={eraserMode}
           highlighterColor={highlighterColor}
           highlighterThickness={highlighterThickness}
+          laserColor={laserColor}
           style={StyleSheet.absoluteFill}
           onLayout={handleViewLayout}
         />
@@ -273,6 +381,62 @@ export default function PdfViewerScreen({ route, navigation }: Props) {
             if (tag) PdfCanvasModule.scrollToPage(tag, page);
           }}
         />
+      )}
+
+      {/* Inline text editing panel — no modal */}
+      {activeTextBox && (
+        <KeyboardAvoidingView
+          style={styles.textPanel}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.textFmtRow}>
+            <TouchableOpacity
+              style={[styles.fmtBtn, localTextBold && styles.fmtBtnOn]}
+              onPress={() => setLocalTextBold(b => !b)}
+            >
+              <Text style={[styles.fmtBtnText, localTextBold && styles.fmtBtnOnText, { fontWeight: '700' }]}>B</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.fmtBtn, localTextItalic && styles.fmtBtnOn]}
+              onPress={() => setLocalTextItalic(i => !i)}
+            >
+              <Text style={[styles.fmtBtnText, localTextItalic && styles.fmtBtnOnText, { fontStyle: 'italic' }]}>I</Text>
+            </TouchableOpacity>
+            <View style={styles.fmtSep} />
+            <TouchableOpacity onPress={() => setLocalTextFontSize(s => Math.max(8, s - 2))} style={styles.fmtBtn}>
+              <Text style={styles.fmtBtnText}>−</Text>
+            </TouchableOpacity>
+            <Text style={styles.fmtSizeVal}>{localTextFontSize}pt</Text>
+            <TouchableOpacity onPress={() => setLocalTextFontSize(s => Math.min(72, s + 2))} style={styles.fmtBtn}>
+              <Text style={styles.fmtBtnText}>+</Text>
+            </TouchableOpacity>
+            <View style={styles.fmtSep} />
+            <View style={[styles.fmtColorDot, { backgroundColor: localTextColor }]} />
+            <View style={{ flex: 1 }} />
+            {activeTextBox.id !== null && (
+              <TouchableOpacity style={styles.fmtDeleteBtn} onPress={handleTextDelete}>
+                <Text style={styles.fmtDeleteText}>Delete</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={styles.fmtCancelBtn} onPress={handleTextCancel}>
+              <Text style={styles.fmtCancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.fmtDoneBtn} onPress={handleTextConfirm}>
+              <Text style={styles.fmtDoneText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+          <TextInput
+            ref={textInputRef}
+            style={styles.textPanelInput}
+            multiline
+            value={activeTextInput}
+            onChangeText={setActiveTextInput}
+            placeholder="Type here..."
+            placeholderTextColor="#666"
+            textAlignVertical="top"
+            autoFocus={false}
+          />
+        </KeyboardAvoidingView>
       )}
     </SafeAreaView>
   );
@@ -366,4 +530,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#4A90E2', alignItems: 'center',
   },
   modalGoText: { color: '#FFF', fontSize: 15, fontWeight: '600' },
+  // Inline text editing panel (PDF screen - dark theme)
+  textPanel: { borderTopWidth: 1, borderTopColor: '#3A3A3A', paddingHorizontal: 12, paddingBottom: 6, backgroundColor: '#2C2C2C' },
+  textFmtRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8 },
+  fmtBtn: { width: 32, height: 32, borderRadius: 6, borderWidth: 1.5, borderColor: '#666', alignItems: 'center', justifyContent: 'center' },
+  fmtBtnOn: { backgroundColor: '#FFFFFF' },
+  fmtBtnText: { fontSize: 15, color: '#FFFFFF' },
+  fmtBtnOnText: { color: '#1A1A1A' },
+  fmtSep: { width: 1, height: 20, backgroundColor: '#555' },
+  fmtSizeVal: { fontSize: 13, fontWeight: '600', minWidth: 32, textAlign: 'center', color: '#FFFFFF' },
+  fmtColorDot: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: '#666' },
+  fmtDeleteBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: '#4A0000' },
+  fmtDeleteText: { color: '#FF6B6B', fontSize: 13, fontWeight: '500' },
+  fmtCancelBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, backgroundColor: '#3A3A3A' },
+  fmtCancelText: { fontSize: 13, color: '#AAA' },
+  fmtDoneBtn: { paddingHorizontal: 16, paddingVertical: 6, borderRadius: 6, backgroundColor: '#4A90E2' },
+  fmtDoneText: { color: '#FFF', fontSize: 13, fontWeight: '600' },
+  textPanelInput: { minHeight: 80, maxHeight: 160, borderRadius: 8, padding: 10, fontSize: 16, color: '#FFFFFF', backgroundColor: '#1A1A1A', marginBottom: 4 },
 });

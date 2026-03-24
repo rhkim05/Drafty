@@ -8,6 +8,10 @@ import {
   Share,
   findNodeHandle,
   Animated,
+  DeviceEventEmitter,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import RNFS from 'react-native-fs';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -36,10 +40,28 @@ export default function NoteEditorScreen({ route, navigation }: Props) {
   const penColor            = useToolStore(s => s.penColor);
   const highlighterColor    = useToolStore(s => s.highlighterColor);
   const highlighterThickness = useToolStore(s => s.highlighterThickness);
+  const laserColor          = useToolStore(s => s.laserColor);
+  const textColor           = useToolStore(s => s.textColor);
+  const textFontSize        = useToolStore(s => s.textFontSize);
+  const textBold            = useToolStore(s => s.textBold);
+  const textItalic          = useToolStore(s => s.textItalic);
+  const textFontFamily      = useToolStore(s => s.textFontFamily);
   const updateNote = useNotebookStore(s => s.updateNote);
   const theme = useTheme();
 
   const [selectionInfo, setSelectionInfo] = useState<SelectionInfo | null>(null);
+  // Text editing state (no modal — inline panel)
+  const [activeTextBox, setActiveTextBox] = useState<{
+    id: string | null;  // null = new box (pending in Kotlin)
+    docX: number; docY: number; width: number; height: number;
+  } | null>(null);
+  const [activeTextInput, setActiveTextInput] = useState('');
+  const [localTextBold, setLocalTextBold] = useState(false);
+  const [localTextItalic, setLocalTextItalic] = useState(false);
+  const [localTextFontSize, setLocalTextFontSize] = useState(24);
+  const [localTextFontFamily, setLocalTextFontFamily] = useState('sans-serif');
+  const [localTextColor, setLocalTextColor] = useState('#000000');
+  const textInputRef = useRef<TextInput>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [showStrip, setShowStrip] = useState(false);
@@ -72,10 +94,11 @@ export default function NoteEditorScreen({ route, navigation }: Props) {
         CanvasModule.getScale(tag),
       ]);
       updateNote(note.id, { lastScale: scale, updatedAt: Date.now() });
-      // v2 format: { version, pageCount, strokes: [...] }
+      // v2 format: { version, pageCount, strokes: [...], textElements: [...] }
       const parsed = JSON.parse(json);
       const strokes = Array.isArray(parsed) ? parsed : (parsed.strokes ?? []);
-      if (strokes.length === 0) return;
+      const textEls = Array.isArray(parsed) ? [] : (parsed.textElements ?? []);
+      if (strokes.length === 0 && textEls.length === 0) return;
       await RNFS.mkdir(DRAWINGS_DIR);
       const filePath = `${DRAWINGS_DIR}/${note.id}.json`;
       await RNFS.writeFile(filePath, json, 'utf8');
@@ -94,6 +117,56 @@ export default function NoteEditorScreen({ route, navigation }: Props) {
     const id = setInterval(saveStrokes, 30_000);
     return () => clearInterval(id);
   }, [saveStrokes]);
+
+  // Auto-focus text input when panel opens
+  useEffect(() => {
+    if (activeTextBox) {
+      const t = setTimeout(() => textInputRef.current?.focus(), 80);
+      return () => clearTimeout(t);
+    }
+  }, [activeTextBox !== null]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Cancel editing when tool changes away from text
+  useEffect(() => {
+    if (activeTool !== 'text' && activeTextBox) {
+      const tag = findNodeHandle(canvasRef.current);
+      if (tag) {
+        if (activeTextBox.id === null) CanvasModule.clearPendingBox(tag);
+        else CanvasModule.setActiveText(tag, '');
+      }
+      setActiveTextBox(null);
+    }
+  }, [activeTool]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Listen for text tap events from Kotlin
+  useEffect(() => {
+    const newTextSub = DeviceEventEmitter.addListener('canvasTextTap', ({ docX, docY, width, height }: { docX: number; docY: number; width: number; height: number }) => {
+      setActiveTextBox({ id: null, docX, docY, width, height });
+      setActiveTextInput('');
+      setLocalTextBold(textBold);
+      setLocalTextItalic(textItalic);
+      setLocalTextFontSize(textFontSize);
+      setLocalTextFontFamily(textFontFamily);
+      setLocalTextColor(textColor);
+    });
+    const editTextSub = DeviceEventEmitter.addListener('canvasTextEditTap', (el: {
+      id: string; text: string; docX: number; docY: number; width: number; height: number;
+      fontSize: number; color: number; bold: boolean; italic: boolean; fontFamily: string;
+    }) => {
+      const r = (el.color >> 16) & 0xFF;
+      const g = (el.color >> 8) & 0xFF;
+      const b = el.color & 0xFF;
+      const colorHex = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+      setActiveTextBox({ id: el.id, docX: el.docX, docY: el.docY, width: el.width, height: el.height });
+      setActiveTextInput(el.text);
+      setLocalTextBold(el.bold);
+      setLocalTextItalic(el.italic);
+      setLocalTextFontSize(Math.round(el.fontSize));
+      setLocalTextFontFamily(el.fontFamily);
+      setLocalTextColor(colorHex);
+    });
+    return () => { newTextSub.remove(); editTextSub.remove(); };
+  }, [textBold, textItalic, textFontSize, textFontFamily, textColor]);
 
   // Load strokes once on initial layout only — must not re-run on rotation,
   // because onSizeChanged in Kotlin already rescales coordinates in-place.
@@ -120,6 +193,42 @@ export default function NoteEditorScreen({ route, navigation }: Props) {
     const tag = findNodeHandle(canvasRef.current);
     if (tag) CanvasModule.redo(tag);
   }, []);
+
+  const handleTextConfirm = useCallback(() => {
+    const tag = findNodeHandle(canvasRef.current);
+    if (!tag || !activeTextBox) return;
+    const text = activeTextInput.trim();
+    if (!text) {
+      // Nothing typed — cancel
+      if (activeTextBox.id === null) CanvasModule.clearPendingBox(tag);
+      else CanvasModule.setActiveText(tag, '');
+      setActiveTextBox(null);
+      return;
+    }
+    if (activeTextBox.id === null) {
+      const id = `text_${Date.now()}`;
+      CanvasModule.addTextElement(tag, id, text, activeTextBox.docX, activeTextBox.docY, activeTextBox.width, activeTextBox.height, localTextFontSize, localTextColor, localTextBold, localTextItalic, localTextFontFamily);
+    } else {
+      CanvasModule.updateTextElement(tag, activeTextBox.id, text, localTextFontSize, localTextColor, localTextBold, localTextItalic, localTextFontFamily);
+    }
+    setActiveTextBox(null);
+  }, [activeTextInput, activeTextBox, localTextFontSize, localTextColor, localTextBold, localTextItalic, localTextFontFamily]);
+
+  const handleTextCancel = useCallback(() => {
+    const tag = findNodeHandle(canvasRef.current);
+    if (tag && activeTextBox) {
+      if (activeTextBox.id === null) CanvasModule.clearPendingBox(tag);
+      else CanvasModule.setActiveText(tag, '');
+    }
+    setActiveTextBox(null);
+  }, [activeTextBox]);
+
+  const handleTextDelete = useCallback(() => {
+    if (!activeTextBox?.id) return;
+    const tag = findNodeHandle(canvasRef.current);
+    if (tag) CanvasModule.deleteTextElement(tag, activeTextBox.id);
+    setActiveTextBox(null);
+  }, [activeTextBox]);
 
   const handleSelectionChanged = useCallback((info: SelectionInfo) => {
     setSelectionInfo(info);
@@ -170,6 +279,7 @@ export default function NoteEditorScreen({ route, navigation }: Props) {
           eraserMode={eraserMode}
           highlighterColor={highlighterColor}
           highlighterThickness={highlighterThickness}
+          laserColor={laserColor}
           style={styles.canvas}
           onLayout={handleLayout}
           onSelectionChanged={handleSelectionChanged}
@@ -199,6 +309,64 @@ export default function NoteEditorScreen({ route, navigation }: Props) {
             if (tag) CanvasModule.scrollToPage(tag, page);
           }}
         />
+      )}
+
+      {/* Inline text editing panel — no modal, keyboard opens naturally */}
+      {activeTextBox && (
+        <KeyboardAvoidingView
+          style={[styles.textPanel, { backgroundColor: theme.surface, borderTopColor: theme.border }]}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          {/* Format bar (above the text input) */}
+          <View style={styles.textFmtRow}>
+            <TouchableOpacity
+              style={[styles.fmtBtn, localTextBold && { backgroundColor: theme.text }]}
+              onPress={() => setLocalTextBold(b => !b)}
+            >
+              <Text style={[styles.fmtBtnText, { color: localTextBold ? theme.surface : theme.text, fontWeight: '700' }]}>B</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.fmtBtn, localTextItalic && { backgroundColor: theme.text }]}
+              onPress={() => setLocalTextItalic(i => !i)}
+            >
+              <Text style={[styles.fmtBtnText, { color: localTextItalic ? theme.surface : theme.text, fontStyle: 'italic' }]}>I</Text>
+            </TouchableOpacity>
+            <View style={[styles.fmtSep, { backgroundColor: theme.border }]} />
+            <TouchableOpacity onPress={() => setLocalTextFontSize(s => Math.max(8, s - 2))} style={styles.fmtBtn}>
+              <Text style={[styles.fmtBtnText, { color: theme.text }]}>−</Text>
+            </TouchableOpacity>
+            <Text style={[styles.fmtSizeVal, { color: theme.text }]}>{localTextFontSize}pt</Text>
+            <TouchableOpacity onPress={() => setLocalTextFontSize(s => Math.min(72, s + 2))} style={styles.fmtBtn}>
+              <Text style={[styles.fmtBtnText, { color: theme.text }]}>+</Text>
+            </TouchableOpacity>
+            <View style={[styles.fmtSep, { backgroundColor: theme.border }]} />
+            <View style={[styles.fmtColorDot, { backgroundColor: localTextColor }]} />
+            <View style={{ flex: 1 }} />
+            {activeTextBox.id !== null && (
+              <TouchableOpacity style={styles.fmtDeleteBtn} onPress={handleTextDelete}>
+                <Text style={styles.fmtDeleteText}>Delete</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={[styles.fmtCancelBtn, { backgroundColor: theme.surfaceAlt }]} onPress={handleTextCancel}>
+              <Text style={[styles.fmtCancelText, { color: theme.textSub }]}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.fmtDoneBtn} onPress={handleTextConfirm}>
+              <Text style={styles.fmtDoneText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+          {/* Text input — keyboard pops up automatically via focus() */}
+          <TextInput
+            ref={textInputRef}
+            style={[styles.textPanelInput, { color: theme.text, backgroundColor: theme.bg }]}
+            multiline
+            value={activeTextInput}
+            onChangeText={setActiveTextInput}
+            placeholder="Type here..."
+            placeholderTextColor={theme.textHint}
+            textAlignVertical="top"
+            autoFocus={false}
+          />
+        </KeyboardAvoidingView>
       )}
     </SafeAreaView>
   );
@@ -256,4 +424,19 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#FFFFFF',
   },
+  // Inline text editing panel (bottom, no modal)
+  textPanel: { borderTopWidth: 1, paddingHorizontal: 12, paddingBottom: 6 },
+  textFmtRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8 },
+  fmtBtn: { width: 32, height: 32, borderRadius: 6, borderWidth: 1.5, borderColor: '#AAA', alignItems: 'center', justifyContent: 'center' },
+  fmtBtnText: { fontSize: 15 },
+  fmtSep: { width: 1, height: 20 },
+  fmtSizeVal: { fontSize: 13, fontWeight: '600', minWidth: 32, textAlign: 'center' },
+  fmtColorDot: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: '#AAA' },
+  fmtDeleteBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: '#FFEBEE' },
+  fmtDeleteText: { color: '#E53935', fontSize: 13, fontWeight: '500' },
+  fmtCancelBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 },
+  fmtCancelText: { fontSize: 13 },
+  fmtDoneBtn: { paddingHorizontal: 16, paddingVertical: 6, borderRadius: 6, backgroundColor: '#4A90E2' },
+  fmtDoneText: { color: '#FFF', fontSize: 13, fontWeight: '600' },
+  textPanelInput: { minHeight: 80, maxHeight: 160, borderRadius: 8, padding: 10, fontSize: 16, marginBottom: 4 },
 });

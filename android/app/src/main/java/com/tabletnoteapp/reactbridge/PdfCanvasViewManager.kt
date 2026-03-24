@@ -7,6 +7,7 @@ import com.facebook.react.uimanager.SimpleViewManager
 import com.facebook.react.uimanager.ThemedReactContext
 import com.facebook.react.uimanager.annotations.ReactProp
 import com.tabletnoteapp.canvas.PdfDrawingView
+import com.tabletnoteapp.canvas.models.TextElement
 import com.tabletnoteapp.canvas.models.ToolType
 
 class PdfCanvasViewManager : SimpleViewManager<PdfDrawingView>() {
@@ -48,6 +49,34 @@ class PdfCanvasViewManager : SimpleViewManager<PdfDrawingView>() {
                     })
                 })
         }
+
+        view.onTextTap = { docX, docY, width, height ->
+            context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                .emit("pdfCanvasTextTap", Arguments.createMap().apply {
+                    putDouble("docX", docX.toDouble())
+                    putDouble("docY", docY.toDouble())
+                    putDouble("width", width.toDouble())
+                    putDouble("height", height.toDouble())
+                })
+        }
+
+        view.onTextEditTap = { el ->
+            context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                .emit("pdfCanvasTextEditTap", Arguments.createMap().apply {
+                    putString("id", el.id)
+                    putString("text", el.text)
+                    putDouble("docX", el.x.toDouble())
+                    putDouble("docY", el.y.toDouble())
+                    putDouble("width", el.width.toDouble())
+                    putDouble("height", el.height.toDouble())
+                    putDouble("fontSize", el.fontSize.toDouble())
+                    putInt("color", el.color)
+                    putBoolean("bold", el.bold)
+                    putBoolean("italic", el.italic)
+                    putString("fontFamily", el.fontFamily)
+                })
+        }
+
         return view
     }
 
@@ -64,6 +93,8 @@ class PdfCanvasViewManager : SimpleViewManager<PdfDrawingView>() {
             "highlighter" -> ToolType.HIGHLIGHTER
             "select"      -> ToolType.SELECT
             "scroll"      -> ToolType.SCROLL
+            "text"        -> ToolType.TEXT
+            "laser"       -> ToolType.LASER
             else          -> ToolType.SCROLL
         }
     }
@@ -71,6 +102,11 @@ class PdfCanvasViewManager : SimpleViewManager<PdfDrawingView>() {
     @ReactProp(name = "penColor")
     fun setPenColor(view: PdfDrawingView, color: String?) {
         if (color != null) view.penColor = Color.parseColor(color)
+    }
+
+    @ReactProp(name = "laserColor")
+    fun setLaserColor(view: PdfDrawingView, color: String?) {
+        if (color != null) view.laserColor = Color.parseColor(color)
     }
 
     @ReactProp(name = "penThickness", defaultFloat = 4f)
