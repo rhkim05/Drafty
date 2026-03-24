@@ -79,6 +79,9 @@ export default function PdfViewerScreen({ route, navigation }: Props) {
   const highlighterColor     = useToolStore(s => s.highlighterColor);
   const highlighterThickness = useToolStore(s => s.highlighterThickness);
   const laserColor           = useToolStore(s => s.laserColor);
+  const shapeType            = useToolStore(s => s.shapeType);
+  const shapeColor           = useToolStore(s => s.shapeColor);
+  const shapeThickness       = useToolStore(s => s.shapeThickness);
   const textColor            = useToolStore(s => s.textColor);
   const textFontSize         = useToolStore(s => s.textFontSize);
   const textBold             = useToolStore(s => s.textBold);
@@ -317,6 +320,9 @@ export default function PdfViewerScreen({ route, navigation }: Props) {
           highlighterColor={highlighterColor}
           highlighterThickness={highlighterThickness}
           laserColor={laserColor}
+          shapeType={shapeType}
+          shapeColor={shapeColor}
+          shapeThickness={shapeThickness}
           style={StyleSheet.absoluteFill}
           onLayout={handleViewLayout}
         />

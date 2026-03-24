@@ -21,6 +21,8 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.widget.OverScroller
 import com.tabletnoteapp.canvas.models.Point
+import com.tabletnoteapp.canvas.models.Shape
+import com.tabletnoteapp.canvas.models.ShapeType
 import com.tabletnoteapp.canvas.models.Stroke
 import com.tabletnoteapp.canvas.models.StrokeStyle
 import com.tabletnoteapp.canvas.models.TextElement
@@ -30,6 +32,10 @@ import com.tabletnoteapp.canvas.utils.BezierSmoother
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 class DrawingCanvas(context: Context) : View(context) {
 
@@ -222,14 +228,14 @@ class DrawingCanvas(context: Context) : View(context) {
     // Outer blurred glow
     private val laserGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+        strokeCap = Paint.Cap.BUTT; strokeJoin = Paint.Join.ROUND
         strokeWidth = 22f
         maskFilter = BlurMaskFilter(14f, BlurMaskFilter.Blur.NORMAL)
     }
     // Crisp bright core
     private val laserCorePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+        strokeCap = Paint.Cap.BUTT; strokeJoin = Paint.Join.ROUND
         strokeWidth = 3.5f
     }
     // White hot-spot dot at the tip
@@ -239,6 +245,23 @@ class DrawingCanvas(context: Context) : View(context) {
     }
     private var laserFadeStart = 0L
     private val LASER_FADE_MS  = 600L
+
+    // ── Shape state ────────────────────────────────────────────────────────────
+
+    var currentShapeType: ShapeType = ShapeType.LINE
+    var shapeColor: Int = Color.BLACK
+    var shapeThickness: Float = 4f
+    private val committedShapes = mutableListOf<Shape>()
+    private var activeShape: Shape? = null   // live preview while dragging
+
+    private val shapePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
+    private val shapeArrowFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
 
     // ── Selector state (retained; SELECT tool currently scrolls) ──────────────
 
@@ -335,6 +358,14 @@ class DrawingCanvas(context: Context) : View(context) {
         scrollY    = remapY(logCenterYOld) * scale - height / 2f
         rawScrollY = scrollY
 
+        for (shape in committedShapes) {
+            shape.x1 *= ratio; shape.y1 = remapY(shape.y1)
+            shape.x2 *= ratio; shape.y2 = remapY(shape.y2)
+            if (shape.type != ShapeType.LINE && shape.type != ShapeType.ARROW) {
+                shape.thickness *= ratio
+            }
+        }
+
         for (i in undoStack.indices) undoStack[i] = scaleUndoAction(undoStack[i], ratio)
         for (i in redoStack.indices) redoStack[i] = scaleUndoAction(redoStack[i], ratio)
         if (!selectionBounds.isEmpty) {
@@ -355,6 +386,7 @@ class DrawingCanvas(context: Context) : View(context) {
             return pageIdx * (oldPageH * ratio + gap) + yInPage * ratio
         }
         return when (action) {
+            is UndoAction.AddShape      -> action  // shape coords already scaled above
             is UndoAction.AddStroke     -> action  // stroke points already scaled above
             is UndoAction.EraseStrokes  -> action  // stroke points already scaled above
             is UndoAction.MoveStrokes   -> action.copy(dx = action.dx * ratio, dy = action.dy * ratio)
@@ -388,13 +420,19 @@ class DrawingCanvas(context: Context) : View(context) {
         val newCanvas = Canvas(newBitmap)
         if (!fromScratch && bitmap != null) {
             bitmap?.let { newCanvas.drawBitmap(it, 0f, 0f, null) }
-        } else if (committedStrokes.isNotEmpty()) {
+        } else if (committedStrokes.isNotEmpty() || committedShapes.isNotEmpty()) {
             val clipPath = buildPageClipPath()
             for (stroke in committedStrokes) {
                 val path = BezierSmoother.buildPath(stroke.points) ?: continue
                 newCanvas.save()
                 newCanvas.clipPath(clipPath)
                 newCanvas.drawPath(path, paintForStroke(stroke))
+                newCanvas.restore()
+            }
+            for (shape in committedShapes) {
+                newCanvas.save()
+                newCanvas.clipPath(clipPath)
+                drawShape(newCanvas, shape)
                 newCanvas.restore()
             }
         }
@@ -439,6 +477,13 @@ class DrawingCanvas(context: Context) : View(context) {
 
         if (layerSave != -1) canvas.restoreToCount(layerSave)
         canvas.restore()  // remove page clip
+
+        // Draw shapes live (above strokes, page-clipped)
+        canvas.save()
+        canvas.clipPath(buildPageClipPath())
+        for (shape in committedShapes) drawShape(canvas, shape)
+        activeShape?.let { drawShape(canvas, it) }
+        canvas.restore()
 
         // Draw text elements live (above strokes, page-clipped)
         canvas.save()
@@ -530,14 +575,13 @@ class DrawingCanvas(context: Context) : View(context) {
                 val n = laserPoints.size
                 laserGlowPaint.color = laserColor
                 laserCorePaint.color = laserColor
-                // Draw segment-by-segment: tail → transparent, head → opaque
+                // Glow: single smooth bezier path
+                laserGlowPaint.alpha = (baseAlpha * 0.38f).toInt()
+                canvas.drawPath(buildLaserPath(laserPoints), laserGlowPaint)
+                // Core: per-segment gradient (historical points make segments tiny → smooth)
                 for (i in 1 until n) {
                     val frac = i.toFloat() / n
-                    val segAlpha = (frac * baseAlpha).toInt()
-                    laserGlowPaint.alpha = (segAlpha * 0.38f).toInt()
-                    canvas.drawLine(laserPoints[i-1].x, laserPoints[i-1].y,
-                                    laserPoints[i].x,   laserPoints[i].y, laserGlowPaint)
-                    laserCorePaint.alpha = segAlpha
+                    laserCorePaint.alpha = (frac * baseAlpha).toInt()
                     canvas.drawLine(laserPoints[i-1].x, laserPoints[i-1].y,
                                     laserPoints[i].x,   laserPoints[i].y, laserCorePaint)
                 }
@@ -587,6 +631,7 @@ class DrawingCanvas(context: Context) : View(context) {
             currentTool == ToolType.LASER                   -> handleLaser(event)
             currentTool == ToolType.TEXT                    -> handleText(event)
             currentTool == ToolType.SELECT                  -> handleSelect(event)
+            currentTool == ToolType.SHAPES                  -> handleShape(event)
             else                                            -> handleDraw(event)
         }
         return true
@@ -841,13 +886,115 @@ class DrawingCanvas(context: Context) : View(context) {
                 invalidate()
             }
             MotionEvent.ACTION_MOVE -> {
+                // Consume all batched sub-frame positions for maximum resolution
+                for (h in 0 until event.historySize) {
+                    laserPoints.add(android.graphics.PointF(event.getHistoricalX(h), event.getHistoricalY(h)))
+                }
                 laserPoints.add(android.graphics.PointF(event.x, event.y))
-                if (laserPoints.size > 40) laserPoints.removeAt(0)
+                while (laserPoints.size > 120) laserPoints.removeAt(0)
                 invalidate()
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 laserFadeStart = android.os.SystemClock.uptimeMillis()
                 invalidate()
+            }
+        }
+    }
+
+    private fun buildLaserPath(pts: List<android.graphics.PointF>): Path {
+        val path = Path()
+        if (pts.size < 2) return path
+        path.moveTo(pts[0].x, pts[0].y)
+        if (pts.size == 2) { path.lineTo(pts[1].x, pts[1].y); return path }
+        for (i in 1 until pts.size - 1) {
+            val midX = (pts[i].x + pts[i + 1].x) / 2f
+            val midY = (pts[i].y + pts[i + 1].y) / 2f
+            path.quadTo(pts[i].x, pts[i].y, midX, midY)
+        }
+        path.lineTo(pts.last().x, pts.last().y)
+        return path
+    }
+
+    // ── Shape tool handling ───────────────────────────────────────────────────
+
+    private fun handleShape(event: MotionEvent) {
+        val xDoc = toLogicalX(event.x)
+        val yDoc = toLogicalY(event.y)
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                parent?.requestDisallowInterceptTouchEvent(true)
+                redoStack.clear()
+                activeShape = Shape(
+                    id        = System.currentTimeMillis().toString(),
+                    type      = currentShapeType,
+                    x1        = xDoc, y1 = yDoc,
+                    x2        = xDoc, y2 = yDoc,
+                    color     = shapeColor,
+                    thickness = shapeThickness,
+                )
+                invalidate()
+            }
+            MotionEvent.ACTION_MOVE -> {
+                activeShape?.let { it.x2 = xDoc; it.y2 = yDoc }
+                invalidate()
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                activeShape?.let { shape ->
+                    shape.x2 = xDoc; shape.y2 = yDoc
+                    // Only commit if the drag was meaningful
+                    val dx = shape.x2 - shape.x1; val dy = shape.y2 - shape.y1
+                    if (dx * dx + dy * dy > 4f) {
+                        committedShapes.add(shape)
+                        undoStack.add(UndoAction.AddShape(shape))
+                        // Draw onto the bitmap cache
+                        bitmapCanvas?.save()
+                        bitmapCanvas?.clipPath(buildPageClipPath())
+                        drawShape(bitmapCanvas!!, shape)
+                        bitmapCanvas?.restore()
+                        notifyUndoRedoState()
+                    }
+                    activeShape = null
+                    invalidate()
+                }
+            }
+        }
+    }
+
+    private fun drawShape(canvas: Canvas, shape: Shape) {
+        shapePaint.color = shape.color
+        shapePaint.strokeWidth = shape.thickness
+        val x1 = shape.x1; val y1 = shape.y1; val x2 = shape.x2; val y2 = shape.y2
+        when (shape.type) {
+            ShapeType.LINE -> {
+                canvas.drawLine(x1, y1, x2, y2, shapePaint)
+            }
+            ShapeType.RECTANGLE -> {
+                val left = minOf(x1, x2); val top = minOf(y1, y2)
+                val right = maxOf(x1, x2); val bottom = maxOf(y1, y2)
+                canvas.drawRect(left, top, right, bottom, shapePaint)
+            }
+            ShapeType.OVAL -> {
+                val left = minOf(x1, x2); val top = minOf(y1, y2)
+                val right = maxOf(x1, x2); val bottom = maxOf(y1, y2)
+                canvas.drawOval(RectF(left, top, right, bottom), shapePaint)
+            }
+            ShapeType.ARROW -> {
+                canvas.drawLine(x1, y1, x2, y2, shapePaint)
+                // Draw arrowhead at (x2, y2)
+                val angle = atan2((y2 - y1).toDouble(), (x2 - x1).toDouble())
+                val arrowLen = (shape.thickness * 4f).coerceIn(10f, 30f)
+                val arrowAngle = Math.PI / 6  // 30 degrees
+                val ax1 = (x2 - arrowLen * cos(angle - arrowAngle)).toFloat()
+                val ay1 = (y2 - arrowLen * sin(angle - arrowAngle)).toFloat()
+                val ax2 = (x2 - arrowLen * cos(angle + arrowAngle)).toFloat()
+                val ay2 = (y2 - arrowLen * sin(angle + arrowAngle)).toFloat()
+                shapeArrowFillPaint.color = shape.color
+                val arrowPath = Path()
+                arrowPath.moveTo(x2, y2)
+                arrowPath.lineTo(ax1, ay1)
+                arrowPath.lineTo(ax2, ay2)
+                arrowPath.close()
+                canvas.drawPath(arrowPath, shapeArrowFillPaint)
             }
         }
     }
@@ -1163,6 +1310,7 @@ class DrawingCanvas(context: Context) : View(context) {
     fun undo() {
         val action = undoStack.removeLastOrNull() ?: return
         when (action) {
+            is UndoAction.AddShape  -> committedShapes.remove(action.shape)
             is UndoAction.AddStroke -> committedStrokes.remove(action.stroke)
             is UndoAction.EraseStrokes -> {
                 for ((idx, stroke) in action.entries.sortedByDescending { it.first }) {
@@ -1210,6 +1358,11 @@ class DrawingCanvas(context: Context) : View(context) {
     fun redo() {
         val action = redoStack.removeLastOrNull() ?: return
         when (action) {
+            is UndoAction.AddShape -> {
+                committedShapes.add(action.shape)
+                redrawBitmap()
+                invalidate()
+            }
             is UndoAction.AddStroke -> {
                 committedStrokes.add(action.stroke)
                 val path = BezierSmoother.buildPath(action.stroke.points)
@@ -1278,6 +1431,12 @@ class DrawingCanvas(context: Context) : View(context) {
             newCanvas.drawPath(path, paintForStroke(stroke))
             newCanvas.restore()
         }
+        for (shape in committedShapes) {
+            newCanvas.save()
+            newCanvas.clipPath(clipPath)
+            drawShape(newCanvas, shape)
+            newCanvas.restore()
+        }
         bitmap?.recycle()
         bitmap = newBitmap
         bitmapCanvas = newCanvas
@@ -1319,6 +1478,7 @@ class DrawingCanvas(context: Context) : View(context) {
 
     fun clearCanvas() {
         committedStrokes.clear()
+        committedShapes.clear()
         undoStack.clear()
         redoStack.clear()
         textElements.clear()
@@ -1360,6 +1520,18 @@ class DrawingCanvas(context: Context) : View(context) {
             })
         }
         obj.put("textElements", textArr)
+        val shapesArr = JSONArray()
+        for (shape in committedShapes) {
+            shapesArr.put(JSONObject().apply {
+                put("id", shape.id)
+                put("type", shape.type.name)
+                put("x1", shape.x1.toDouble()); put("y1", shape.y1.toDouble())
+                put("x2", shape.x2.toDouble()); put("y2", shape.y2.toDouble())
+                put("color", shape.color)
+                put("thickness", shape.thickness.toDouble())
+            })
+        }
+        obj.put("shapes", shapesArr)
         return obj.toString()
     }
 
@@ -1382,6 +1554,7 @@ class DrawingCanvas(context: Context) : View(context) {
 
     fun loadStrokesJson(json: String) {
         committedStrokes.clear()
+        committedShapes.clear()
         undoStack.clear()
         redoStack.clear()
         textElements.clear()
@@ -1435,6 +1608,26 @@ class DrawingCanvas(context: Context) : View(context) {
                 ))
             }
             committedStrokes.add(stroke)
+        }
+
+        // Load shapes (v2+ only)
+        if (json.trimStart().startsWith('{')) {
+            val obj2 = JSONObject(json)
+            val sArr = obj2.optJSONArray("shapes") ?: JSONArray()
+            for (i in 0 until sArr.length()) {
+                val s = sArr.getJSONObject(i)
+                val shapeType = try { ShapeType.valueOf(s.getString("type")) } catch (e: Exception) { ShapeType.LINE }
+                committedShapes.add(Shape(
+                    id        = s.optString("id", System.currentTimeMillis().toString()),
+                    type      = shapeType,
+                    x1        = s.getDouble("x1").toFloat(),
+                    y1        = s.getDouble("y1").toFloat(),
+                    x2        = s.getDouble("x2").toFloat(),
+                    y2        = s.getDouble("y2").toFloat(),
+                    color     = s.getInt("color"),
+                    thickness = s.getDouble("thickness").toFloat(),
+                ))
+            }
         }
 
         lastEmittedPage = -1

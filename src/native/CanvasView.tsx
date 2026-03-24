@@ -20,6 +20,9 @@ interface CanvasViewProps {
   highlighterColor: string;
   highlighterThickness: number;
   laserColor: string;
+  shapeType?: string;
+  shapeColor?: string;
+  shapeThickness?: number;
   style?: StyleProp<ViewStyle>;
   onLayout?: () => void;
   onSelectionChanged?: (info: SelectionInfo) => void;

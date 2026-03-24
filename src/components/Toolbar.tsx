@@ -70,19 +70,37 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, onShowLabel, sh
   const textBtnRef     = useRef<TouchableOpacity>(null);
   const laserBtnRef    = useRef<TouchableOpacity>(null);
   const penScrollRef   = useRef<ScrollView>(null);
+  const laserScrollRef = useRef<ScrollView>(null);
   const hlScrollRef    = useRef<ScrollView>(null);
 
   const theme = useTheme();
+
+  const LASER_PRESETS = ['#FF3B30', '#30D158', '#0A84FF', '#FFD60A', '#FF375F', '#5AC8FA', '#FF9F0A', '#FFFFFF'];
+
   const isPen        = activeTool === 'pen';
   const isEraser     = activeTool === 'eraser';
   const isHighlighter = activeTool === 'highlighter';
   const isText       = activeTool === 'text';
   const isLaser      = activeTool === 'laser';
-  const laserColor   = useToolStore(s => s.laserColor);
+  const laserColor    = useToolStore(s => s.laserColor);
   const setLaserColor = useToolStore(s => s.setLaserColor);
+  const shapeType     = useToolStore(s => s.shapeType);
+  const setShapeType  = useToolStore(s => s.setShapeType);
+  const shapeColor    = useToolStore(s => s.shapeColor);
+  const setShapeColor = useToolStore(s => s.setShapeColor);
+  const shapeThickness     = useToolStore(s => s.shapeThickness);
+  const setShapeThickness  = useToolStore(s => s.setShapeThickness);
+  const isShapes      = activeTool === 'shapes';
 
-  const closeTextPopup  = () => { setTextExpanded(false); setShowTextColorPicker(false); };
-  const closeLaserPopup = () => { setLaserExpanded(false); setShowLaserColorPicker(false); };
+  const [shapesExpanded, setShapesExpanded] = useState(false);
+  const [showShapeColorPicker, setShowShapeColorPicker] = useState(false);
+  const [shapePickerKey, setShapePickerKey] = useState(0);
+  const [shapesPopupPos, setShapesPopupPos] = useState({ top: 60, left: 0 });
+  const shapesBtnRef = useRef<TouchableOpacity>(null);
+
+  const closeTextPopup   = () => { setTextExpanded(false); setShowTextColorPicker(false); };
+  const closeLaserPopup  = () => { setLaserExpanded(false); setShowLaserColorPicker(false); };
+  const closeShapesPopup = () => { setShapesExpanded(false); setShowShapeColorPicker(false); };
 
   const closePenPopup = () => {
     setPenExpanded(false);
@@ -105,7 +123,7 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, onShowLabel, sh
     } else {
       setTool('text');
       onShowLabel?.('Text');
-      closePenPopup(); closeEraserPopup(); closeHlPopup(); closeTextPopup(); closeLaserPopup();
+      closePenPopup(); closeEraserPopup(); closeHlPopup(); closeTextPopup(); closeLaserPopup(); closeShapesPopup();
     }
   };
 
@@ -121,7 +139,7 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, onShowLabel, sh
     } else {
       setTool('eraser');
       onShowLabel?.('Eraser');
-      closeEraserPopup(); closePenPopup(); closeHlPopup(); closeLaserPopup();
+      closeEraserPopup(); closePenPopup(); closeHlPopup(); closeLaserPopup(); closeShapesPopup();
     }
   };
 
@@ -138,7 +156,7 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, onShowLabel, sh
     } else {
       setTool('pen');
       onShowLabel?.('Pen');
-      closePenPopup(); closeEraserPopup(); closeHlPopup(); closeLaserPopup();
+      closePenPopup(); closeEraserPopup(); closeHlPopup(); closeLaserPopup(); closeShapesPopup();
     }
   };
 
@@ -155,7 +173,24 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, onShowLabel, sh
     } else {
       setTool('laser');
       onShowLabel?.('Laser');
-      closePenPopup(); closeEraserPopup(); closeHlPopup(); closeTextPopup(); closeLaserPopup();
+      closePenPopup(); closeEraserPopup(); closeHlPopup(); closeTextPopup(); closeLaserPopup(); closeShapesPopup();
+    }
+  };
+
+  const handleShapesPress = () => {
+    if (isShapes) {
+      if (!shapesExpanded) {
+        shapesBtnRef.current?.measureInWindow((x, y, _w, h) => {
+          setShapesPopupPos({ top: y + h + 6, left: x });
+        });
+      }
+      onShowLabel?.('');
+      setShapesExpanded(v => !v);
+      setShowShapeColorPicker(false);
+    } else {
+      setTool('shapes');
+      onShowLabel?.('Shapes');
+      closePenPopup(); closeEraserPopup(); closeHlPopup(); closeTextPopup(); closeLaserPopup(); closeShapesPopup();
     }
   };
 
@@ -172,7 +207,7 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, onShowLabel, sh
     } else {
       setTool('highlighter');
       onShowLabel?.('Highlight');
-      closePenPopup(); closeEraserPopup(); closeHlPopup(); closeLaserPopup();
+      closePenPopup(); closeEraserPopup(); closeHlPopup(); closeLaserPopup(); closeShapesPopup();
     }
   };
 
@@ -201,14 +236,14 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, onShowLabel, sh
         <View style={styles.centerSection}>
           <TouchableOpacity
             style={[styles.button, activeTool === 'scroll' && activeStyle]}
-            onPress={() => { if (activeTool !== 'scroll') { setTool('scroll'); onShowLabel?.('Scroll'); } closePenPopup(); closeEraserPopup(); closeHlPopup(); closeLaserPopup(); }}
+            onPress={() => { if (activeTool !== 'scroll') { setTool('scroll'); onShowLabel?.('Scroll'); } closePenPopup(); closeEraserPopup(); closeHlPopup(); closeLaserPopup(); closeShapesPopup(); }}
           >
             <Text style={styles.buttonIcon}>✋</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={[styles.button, activeTool === 'select' && activeStyle]}
-            onPress={() => { if (activeTool !== 'select') { setTool('select'); onShowLabel?.('Select'); } closePenPopup(); closeEraserPopup(); closeHlPopup(); closeLaserPopup(); }}
+            onPress={() => { if (activeTool !== 'select') { setTool('select'); onShowLabel?.('Select'); } closePenPopup(); closeEraserPopup(); closeHlPopup(); closeLaserPopup(); closeShapesPopup(); }}
           >
             <Text style={styles.buttonIcon}>✦</Text>
           </TouchableOpacity>
@@ -253,6 +288,14 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, onShowLabel, sh
             onPress={handleLaserPress}
           >
             <Text style={styles.buttonIcon}>🔴</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            ref={shapesBtnRef}
+            style={[styles.button, isShapes && activeStyle]}
+            onPress={handleShapesPress}
+          >
+            <Text style={styles.buttonIcon}>▭</Text>
           </TouchableOpacity>
         </View>
 
@@ -456,12 +499,31 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, onShowLabel, sh
           <View style={[styles.penPopup, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <Text style={[styles.popupTitle, { color: theme.textSub }]}>Laser</Text>
             <View style={[styles.hDivider, { backgroundColor: theme.border }]} />
-            <View style={{ alignItems: 'center' }}>
+            <ScrollView
+              ref={laserScrollRef}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.presetScroll}
+              contentContainerStyle={styles.presetScrollContent}
+            >
+              {LASER_PRESETS.map(c => (
+                <TouchableOpacity
+                  key={c}
+                  style={[
+                    styles.presetDot,
+                    { backgroundColor: c },
+                    laserColor === c && styles.presetDotActive,
+                  ]}
+                  onPress={() => { setLaserColor(c); setShowLaserColorPicker(false); }}
+                />
+              ))}
               <TouchableOpacity
-                style={[styles.textColorDot, { backgroundColor: laserColor }]}
+                style={styles.addPresetBtn}
                 onPress={() => { setLaserPickerKey(k => k + 1); setShowLaserColorPicker(v => !v); }}
-              />
-            </View>
+              >
+                <Text style={styles.addPresetText}>+</Text>
+              </TouchableOpacity>
+            </ScrollView>
           </View>
         </View>
 
@@ -470,7 +532,7 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, onShowLabel, sh
             <ColorPickerPanel
               key={laserPickerKey}
               color={laserColor}
-              presetColors={presetColors}
+              presetColors={LASER_PRESETS}
               onColorChange={setLaserColor}
               onPresetSave={() => {}}
             />
@@ -550,6 +612,63 @@ export default function Toolbar({ onUndo, onRedo, onToggleStrip, onShowLabel, sh
               color={textColor}
               presetColors={presetColors}
               onColorChange={setTextColor}
+              onPresetSave={() => {}}
+            />
+          </View>
+        )}
+      </Modal>
+
+      {/* ── Shapes options popup ── */}
+      <Modal
+        visible={isShapes && shapesExpanded}
+        transparent
+        animationType="fade"
+        onRequestClose={closeShapesPopup}
+      >
+        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={closeShapesPopup} activeOpacity={1} />
+
+        <View style={[styles.popupRow, { top: shapesPopupPos.top }]}>
+          <View style={[styles.penPopup, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Text style={[styles.popupTitle, { color: theme.textSub }]}>Shapes</Text>
+            <View style={[styles.hDivider, { backgroundColor: theme.border }]} />
+            {/* Shape type selector */}
+            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 8 }}>
+              {(['line', 'arrow', 'rectangle', 'oval'] as const).map(t => (
+                <TouchableOpacity
+                  key={t}
+                  style={[styles.shapeTypeBtn, shapeType === t && { borderColor: theme.text, borderWidth: 2 }]}
+                  onPress={() => setShapeType(t)}
+                >
+                  <Text style={[styles.shapeTypeBtnLabel, { color: theme.text }]}>
+                    {t === 'line' ? '—' : t === 'arrow' ? '→' : t === 'rectangle' ? '▭' : '⬭'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={[styles.hDivider, { backgroundColor: theme.border }]} />
+            <ThicknessSlider
+              value={shapeThickness}
+              min={1} max={30}
+              color={shapeColor}
+              onChange={setShapeThickness}
+            />
+            <View style={[styles.hDivider, { backgroundColor: theme.border }]} />
+            <View style={{ alignItems: 'center' }}>
+              <TouchableOpacity
+                style={[styles.textColorDot, { backgroundColor: shapeColor }]}
+                onPress={() => { setShapePickerKey(k => k + 1); setShowShapeColorPicker(v => !v); }}
+              />
+            </View>
+          </View>
+        </View>
+
+        {showShapeColorPicker && (
+          <View style={[styles.popupRow, { top: shapesPopupPos.top + 200 }]}>
+            <ColorPickerPanel
+              key={shapePickerKey}
+              color={shapeColor}
+              presetColors={presetColors}
+              onColorChange={setShapeColor}
               onPresetSave={() => {}}
             />
           </View>
@@ -682,4 +801,6 @@ const styles = StyleSheet.create({
   sizeStepperText: { fontSize: 20, lineHeight: 24 },
   sizeLabel: { fontSize: 15, fontWeight: '600', minWidth: 40, textAlign: 'center' },
   textColorDot: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: '#AAA' },
+  shapeTypeBtn: { width: 44, height: 36, borderRadius: 8, borderWidth: 1.5, borderColor: '#CCCCCC', alignItems: 'center', justifyContent: 'center' },
+  shapeTypeBtnLabel: { fontSize: 18 },
 });

@@ -13,6 +13,9 @@ interface PdfCanvasViewProps {
   highlighterColor: string;
   highlighterThickness: number;
   laserColor: string;
+  shapeType?: string;
+  shapeColor?: string;
+  shapeThickness?: number;
   style?: StyleProp<ViewStyle>;
   onLayout?: () => void;
 }

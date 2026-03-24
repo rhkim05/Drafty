@@ -1,6 +1,19 @@
 package com.tabletnoteapp.canvas.models
 
-enum class ToolType { PEN, ERASER, SELECT, HIGHLIGHTER, SCROLL, TEXT, LASER }
+enum class ToolType { PEN, ERASER, SELECT, HIGHLIGHTER, SCROLL, TEXT, LASER, SHAPES }
+
+enum class ShapeType { LINE, ARROW, RECTANGLE, OVAL }
+
+data class Shape(
+    val id: String,
+    var type: ShapeType,
+    var x1: Float,
+    var y1: Float,
+    var x2: Float,
+    var y2: Float,
+    var color: Int,
+    var thickness: Float,
+)
 
 data class TextElement(
     val id: String,
@@ -40,6 +53,7 @@ sealed class UndoAction {
         val scaleX: Float, val scaleY: Float,
         val pivotX: Float, val pivotY: Float,
     ) : UndoAction()
+    data class AddShape(val shape: Shape) : UndoAction()
     data class AddText(val element: TextElement) : UndoAction()
     data class DeleteText(val element: TextElement) : UndoAction()
     data class EditText(

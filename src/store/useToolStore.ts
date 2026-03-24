@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { EraserMode, ToolMode } from '../types/canvasTypes';
+import { EraserMode, ShapeType, ToolMode } from '../types/canvasTypes';
 
 const DEFAULT_PRESETS = [
   '#000000', '#E53935', '#FB8C00', '#FDD835', '#43A047',
@@ -24,6 +24,12 @@ interface ToolState {
   highlighterThickness: number;
   laserColor: string;
   setLaserColor: (color: string) => void;
+  shapeType: ShapeType;
+  setShapeType: (type: ShapeType) => void;
+  shapeColor: string;
+  setShapeColor: (color: string) => void;
+  shapeThickness: number;
+  setShapeThickness: (value: number) => void;
   textColor: string;
   textFontSize: number;
   textBold: boolean;
@@ -65,6 +71,12 @@ export const useToolStore = create<ToolState>(set => ({
   highlighterThickness: 16,
   laserColor: '#FF3B30',
   setLaserColor: (color) => set({ laserColor: color }),
+  shapeType: 'line',
+  setShapeType: (type) => set({ shapeType: type }),
+  shapeColor: '#000000',
+  setShapeColor: (color) => set({ shapeColor: color }),
+  shapeThickness: 4,
+  setShapeThickness: (value) => set({ shapeThickness: value }),
   textColor: '#000000',
   textFontSize: 24,
   textBold: false,

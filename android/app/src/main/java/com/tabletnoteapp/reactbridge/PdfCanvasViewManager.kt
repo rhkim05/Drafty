@@ -7,6 +7,7 @@ import com.facebook.react.uimanager.SimpleViewManager
 import com.facebook.react.uimanager.ThemedReactContext
 import com.facebook.react.uimanager.annotations.ReactProp
 import com.tabletnoteapp.canvas.PdfDrawingView
+import com.tabletnoteapp.canvas.models.ShapeType
 import com.tabletnoteapp.canvas.models.TextElement
 import com.tabletnoteapp.canvas.models.ToolType
 
@@ -95,8 +96,29 @@ class PdfCanvasViewManager : SimpleViewManager<PdfDrawingView>() {
             "scroll"      -> ToolType.SCROLL
             "text"        -> ToolType.TEXT
             "laser"       -> ToolType.LASER
+            "shapes"      -> ToolType.SHAPES
             else          -> ToolType.SCROLL
         }
+    }
+
+    @ReactProp(name = "shapeType")
+    fun setShapeType(view: PdfDrawingView, type: String?) {
+        view.currentShapeType = when (type) {
+            "arrow"     -> ShapeType.ARROW
+            "rectangle" -> ShapeType.RECTANGLE
+            "oval"      -> ShapeType.OVAL
+            else        -> ShapeType.LINE
+        }
+    }
+
+    @ReactProp(name = "shapeColor")
+    fun setShapeColor(view: PdfDrawingView, color: String?) {
+        if (color != null) view.shapeColor = Color.parseColor(color)
+    }
+
+    @ReactProp(name = "shapeThickness", defaultFloat = 4f)
+    fun setShapeThickness(view: PdfDrawingView, thickness: Float) {
+        view.shapeThickness = thickness
     }
 
     @ReactProp(name = "penColor")

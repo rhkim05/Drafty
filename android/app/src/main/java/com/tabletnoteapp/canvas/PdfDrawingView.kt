@@ -14,6 +14,8 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.widget.OverScroller
 import com.tabletnoteapp.canvas.models.Point
+import com.tabletnoteapp.canvas.models.Shape
+import com.tabletnoteapp.canvas.models.ShapeType
 import com.tabletnoteapp.canvas.models.Stroke
 import com.tabletnoteapp.canvas.models.StrokeStyle
 import com.tabletnoteapp.canvas.models.TextElement
@@ -24,6 +26,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.Executors
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
  * Unified native View: PDF rendering + scroll + pinch zoom + stroke annotation.
@@ -194,13 +199,13 @@ class PdfDrawingView(context: Context) : View(context) {
     private val laserPoints = mutableListOf<android.graphics.PointF>()
     private val laserGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+        strokeCap = Paint.Cap.BUTT; strokeJoin = Paint.Join.ROUND
         strokeWidth = 22f
         maskFilter = BlurMaskFilter(14f, BlurMaskFilter.Blur.NORMAL)
     }
     private val laserCorePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+        strokeCap = Paint.Cap.BUTT; strokeJoin = Paint.Join.ROUND
         strokeWidth = 3.5f
     }
     private val laserHotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -209,6 +214,22 @@ class PdfDrawingView(context: Context) : View(context) {
     }
     private var laserFadeStart = 0L
     private val LASER_FADE_MS  = 600L
+
+    // ── Shape state ───────────────────────────────────────────────────────────
+
+    var currentShapeType: ShapeType = ShapeType.LINE
+    var shapeColor: Int = Color.BLACK
+    var shapeThickness: Float = 4f
+    private val committedShapes = mutableListOf<Shape>()
+    private var activeShape: Shape? = null
+
+    private val shapePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+    }
+    private val shapeArrowFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
 
     private val pageBgPaint = Paint().apply { color = Color.WHITE }
 
@@ -414,6 +435,11 @@ class PdfDrawingView(context: Context) : View(context) {
                 el.height = el.height * ratio
                 el.fontSize = el.fontSize * ratio
             }
+            for (shape in committedShapes) {
+                shape.x1 *= ratio; shape.y1 = remapY(shape.y1)
+                shape.x2 *= ratio; shape.y2 = remapY(shape.y2)
+                shape.thickness *= ratio
+            }
         }
         logicalWidth = vw
 
@@ -479,6 +505,18 @@ class PdfDrawingView(context: Context) : View(context) {
 
         if (layerSave != -1) canvas.restoreToCount(layerSave)
         canvas.restore()  // remove page clip
+
+        // Draw shapes (above strokes, page-clipped)
+        canvas.save()
+        val shapeClipPath = Path()
+        for (i in pageYOffsets.indices) {
+            val ph = pageHeights.getOrNull(i) ?: continue
+            shapeClipPath.addRect(0f, pageYOffsets[i], width.toFloat(), pageYOffsets[i] + ph, Path.Direction.CW)
+        }
+        canvas.clipPath(shapeClipPath)
+        for (shape in committedShapes) drawShape(canvas, shape)
+        activeShape?.let { drawShape(canvas, it) }
+        canvas.restore()
 
         // Text elements (live, page-clipped, above strokes)
         canvas.save()
@@ -570,13 +608,13 @@ class PdfDrawingView(context: Context) : View(context) {
                 val n = laserPoints.size
                 laserGlowPaint.color = laserColor
                 laserCorePaint.color = laserColor
+                // Glow: single smooth bezier path
+                laserGlowPaint.alpha = (baseAlpha * 0.38f).toInt()
+                canvas.drawPath(buildLaserPath(laserPoints), laserGlowPaint)
+                // Core: per-segment gradient (historical points make segments tiny → smooth)
                 for (i in 1 until n) {
                     val frac = i.toFloat() / n
-                    val segAlpha = (frac * baseAlpha).toInt()
-                    laserGlowPaint.alpha = (segAlpha * 0.38f).toInt()
-                    canvas.drawLine(laserPoints[i-1].x, laserPoints[i-1].y,
-                                    laserPoints[i].x,   laserPoints[i].y, laserGlowPaint)
-                    laserCorePaint.alpha = segAlpha
+                    laserCorePaint.alpha = (frac * baseAlpha).toInt()
                     canvas.drawLine(laserPoints[i-1].x, laserPoints[i-1].y,
                                     laserPoints[i].x,   laserPoints[i].y, laserCorePaint)
                 }
@@ -622,6 +660,7 @@ class PdfDrawingView(context: Context) : View(context) {
         if (isFinger || currentTool == ToolType.SCROLL || currentTool == ToolType.SELECT) return handleScroll(event)
         if (currentTool == ToolType.LASER) return handleLaser(event)
         if (currentTool == ToolType.TEXT) return handleText(event)
+        if (currentTool == ToolType.SHAPES) return handleShape(event)
 
         // Stylus in draw mode
         return handleDraw(event)
@@ -807,8 +846,11 @@ class PdfDrawingView(context: Context) : View(context) {
                 invalidate()
             }
             MotionEvent.ACTION_MOVE -> {
+                for (h in 0 until event.historySize) {
+                    laserPoints.add(android.graphics.PointF(event.getHistoricalX(h), event.getHistoricalY(h)))
+                }
                 laserPoints.add(android.graphics.PointF(event.x, event.y))
-                if (laserPoints.size > 40) laserPoints.removeAt(0)
+                while (laserPoints.size > 120) laserPoints.removeAt(0)
                 invalidate()
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
@@ -817,6 +859,92 @@ class PdfDrawingView(context: Context) : View(context) {
             }
         }
         return true
+    }
+
+    private fun buildLaserPath(pts: List<android.graphics.PointF>): Path {
+        val path = Path()
+        if (pts.size < 2) return path
+        path.moveTo(pts[0].x, pts[0].y)
+        if (pts.size == 2) { path.lineTo(pts[1].x, pts[1].y); return path }
+        for (i in 1 until pts.size - 1) {
+            val midX = (pts[i].x + pts[i + 1].x) / 2f
+            val midY = (pts[i].y + pts[i + 1].y) / 2f
+            path.quadTo(pts[i].x, pts[i].y, midX, midY)
+        }
+        path.lineTo(pts.last().x, pts.last().y)
+        return path
+    }
+
+    // ── Shape tool handling ───────────────────────────────────────────────────
+
+    private fun handleShape(event: MotionEvent): Boolean {
+        val xDoc = toLogicalX(event.x)
+        val yDoc = toLogicalY(event.y)
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                parent?.requestDisallowInterceptTouchEvent(true)
+                redoStack.clear()
+                activeShape = Shape(
+                    id        = System.currentTimeMillis().toString(),
+                    type      = currentShapeType,
+                    x1        = xDoc, y1 = yDoc,
+                    x2        = xDoc, y2 = yDoc,
+                    color     = shapeColor,
+                    thickness = shapeThickness,
+                )
+                invalidate()
+            }
+            MotionEvent.ACTION_MOVE -> {
+                activeShape?.let { it.x2 = xDoc; it.y2 = yDoc }
+                invalidate()
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                activeShape?.let { shape ->
+                    shape.x2 = xDoc; shape.y2 = yDoc
+                    val dx = shape.x2 - shape.x1; val dy = shape.y2 - shape.y1
+                    if (dx * dx + dy * dy > 4f) {
+                        committedShapes.add(shape)
+                        undoStack.add(UndoAction.AddShape(shape))
+                        notifyUndoRedoState()
+                    }
+                    activeShape = null
+                    invalidate()
+                }
+            }
+        }
+        return true
+    }
+
+    private fun drawShape(canvas: Canvas, shape: Shape) {
+        shapePaint.color = shape.color
+        shapePaint.strokeWidth = shape.thickness
+        val x1 = shape.x1; val y1 = shape.y1; val x2 = shape.x2; val y2 = shape.y2
+        when (shape.type) {
+            ShapeType.LINE -> canvas.drawLine(x1, y1, x2, y2, shapePaint)
+            ShapeType.RECTANGLE -> {
+                val left = minOf(x1, x2); val top = minOf(y1, y2)
+                canvas.drawRect(left, top, maxOf(x1, x2), maxOf(y1, y2), shapePaint)
+            }
+            ShapeType.OVAL -> {
+                val left = minOf(x1, x2); val top = minOf(y1, y2)
+                canvas.drawOval(RectF(left, top, maxOf(x1, x2), maxOf(y1, y2)), shapePaint)
+            }
+            ShapeType.ARROW -> {
+                canvas.drawLine(x1, y1, x2, y2, shapePaint)
+                val angle = atan2((y2 - y1).toDouble(), (x2 - x1).toDouble())
+                val arrowLen = (shape.thickness * 4f).coerceIn(10f, 30f)
+                val arrowAngle = Math.PI / 6
+                val ax1 = (x2 - arrowLen * cos(angle - arrowAngle)).toFloat()
+                val ay1 = (y2 - arrowLen * sin(angle - arrowAngle)).toFloat()
+                val ax2 = (x2 - arrowLen * cos(angle + arrowAngle)).toFloat()
+                val ay2 = (y2 - arrowLen * sin(angle + arrowAngle)).toFloat()
+                shapeArrowFillPaint.color = shape.color
+                val arrowPath = Path()
+                arrowPath.moveTo(x2, y2); arrowPath.lineTo(ax1, ay1)
+                arrowPath.lineTo(ax2, ay2); arrowPath.close()
+                canvas.drawPath(arrowPath, shapeArrowFillPaint)
+            }
+        }
     }
 
     // ── Text tool handling ────────────────────────────────────────────────────
@@ -1118,6 +1246,7 @@ class PdfDrawingView(context: Context) : View(context) {
     fun undo() {
         val action = undoStack.removeLastOrNull() ?: return
         when (action) {
+            is UndoAction.AddShape  -> committedShapes.remove(action.shape)
             is UndoAction.AddStroke -> committedStrokes.remove(action.stroke)
             is UndoAction.EraseStrokes -> {
                 for ((idx, stroke) in action.entries.sortedByDescending { it.first }) {
@@ -1142,6 +1271,7 @@ class PdfDrawingView(context: Context) : View(context) {
     fun redo() {
         val action = redoStack.removeLastOrNull() ?: return
         when (action) {
+            is UndoAction.AddShape     -> committedShapes.add(action.shape)
             is UndoAction.AddStroke    -> committedStrokes.add(action.stroke)
             is UndoAction.EraseStrokes -> committedStrokes.removeAll(action.entries.map { it.second }.toSet())
             is UndoAction.MoveStrokes, is UndoAction.ResizeStrokes -> { /* not used in PDF view */ }
@@ -1160,7 +1290,8 @@ class PdfDrawingView(context: Context) : View(context) {
     }
 
     fun clearCanvas() {
-        committedStrokes.clear(); undoStack.clear(); redoStack.clear()
+        committedStrokes.clear(); committedShapes.clear()
+        undoStack.clear(); redoStack.clear()
         textElements.clear()
         activeTextId = null; pendingBoxRect = null
         notifyUndoRedoState(); invalidate()
@@ -1195,11 +1326,22 @@ class PdfDrawingView(context: Context) : View(context) {
             })
         }
         obj.put("textElements", textArr)
+        val shapesArr = JSONArray()
+        for (shape in committedShapes) {
+            shapesArr.put(JSONObject().apply {
+                put("id", shape.id); put("type", shape.type.name)
+                put("x1", shape.x1.toDouble()); put("y1", shape.y1.toDouble())
+                put("x2", shape.x2.toDouble()); put("y2", shape.y2.toDouble())
+                put("color", shape.color); put("thickness", shape.thickness.toDouble())
+            })
+        }
+        obj.put("shapes", shapesArr)
         return obj.toString()
     }
 
     fun loadStrokesJson(json: String) {
-        committedStrokes.clear(); undoStack.clear(); redoStack.clear()
+        committedStrokes.clear(); committedShapes.clear()
+        undoStack.clear(); redoStack.clear()
         textElements.clear()
         val arr: JSONArray
         if (json.trimStart().startsWith('{')) {
@@ -1239,6 +1381,23 @@ class PdfDrawingView(context: Context) : View(context) {
                 s.addPoint(Point(p.getDouble("x").toFloat(), p.getDouble("y").toFloat(), p.getDouble("pressure").toFloat()))
             }
             committedStrokes.add(s)
+        }
+        // Load shapes (v2+ only)
+        if (json.trimStart().startsWith('{')) {
+            val obj2 = JSONObject(json)
+            val sArr = obj2.optJSONArray("shapes") ?: JSONArray()
+            for (i in 0 until sArr.length()) {
+                val s = sArr.getJSONObject(i)
+                val shapeType = try { ShapeType.valueOf(s.getString("type")) } catch (_: Exception) { ShapeType.LINE }
+                committedShapes.add(Shape(
+                    id        = s.optString("id", System.currentTimeMillis().toString()),
+                    type      = shapeType,
+                    x1        = s.getDouble("x1").toFloat(), y1 = s.getDouble("y1").toFloat(),
+                    x2        = s.getDouble("x2").toFloat(), y2 = s.getDouble("y2").toFloat(),
+                    color     = s.getInt("color"),
+                    thickness = s.getDouble("thickness").toFloat(),
+                ))
+            }
         }
         notifyUndoRedoState(); invalidate()
     }
