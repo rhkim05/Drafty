@@ -1,4 +1,4 @@
-# 📒 Tablet Note App
+# 📒 Drafty - Tablet Note App
 
 > Goodnotes + Parallel Pages — 태블릿 환경에 최적화된 필기 앱
 
