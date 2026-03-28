@@ -12,18 +12,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Full build (all modules)
 ./gradlew build
 
-# Shared module tests
+# Typecheck without full build (use continuously during implementation)
+./gradlew :shared:compileDebugKotlinAndroid
+./gradlew :shared:compileKotlinIosArm64
+
+# Shared module tests (all platforms)
 ./gradlew :shared:allTests
+
+# Run a single test class
+./gradlew :shared:allTests --tests "com.drafty.shared.SomeTest"
 
 # Android lint
 ./gradlew :androidApp:lint
 
-# Compile shared module per target
-./gradlew :shared:compileDebugKotlinAndroid
-./gradlew :shared:compileKotlinIosArm64
-
-# Generate SQLDelight sources
+# Generate SQLDelight sources (run after modifying .sq files)
 ./gradlew :shared:generateCommonMainDraftyDatabaseInterface
+
+# Install and run on connected Android device/emulator
+./gradlew :androidApp:installDebug
 ```
 
 CI runs: `build` → `:shared:allTests` → `:androidApp:lint` (see `.github/workflows/build.yml`).
@@ -45,7 +51,7 @@ shared/commonMain (stores, use cases, models, repositories, SQLDelight)
 shared/{androidMain,iosMain} (expect/actual: DB drivers, platform utils)
 ```
 
-**MVI State Management**: Stores (`CanvasStore`, `NotebookStore`, `LibraryStore`) handle intents and emit state. Screens observe state via Compose.
+**MVI State Management**: Stores handle intents and emit state. Screens observe state via Compose. Store classes (e.g. `CanvasStore`, `NotebookStore`, `LibraryStore`) will live in `shared/commonMain`.
 
 ### Navigation
 
@@ -62,7 +68,11 @@ Type-safe route builders: `Routes.notebook(id)`, `Routes.canvas(notebookId, page
 
 ### Dependency Injection
 
-**Koin** with two modules: `SharedModule` (database, shared services) and `AppModule` (Android-specific, e.g. `DatabaseDriverFactory`). Initialized in `DraftyApp.onCreate()`.
+**Koin** with two modules wired in `DraftyApp.onCreate()`:
+- `AppModule` — Android-specific: provides `DatabaseDriverFactory(context)`
+- `SharedModule` — KMP-shared: consumes the driver to create `DraftyDatabase` singleton
+
+Flow: `AppModule` → `DatabaseDriverFactory` → `SharedModule` → `DraftyDatabase`. The iOS side uses a no-arg `DatabaseDriverFactory` constructor instead.
 
 ## Key Libraries
 
@@ -71,6 +81,13 @@ Type-safe route builders: `Routes.notebook(id)`, `Routes.canvas(notebookId, page
 - **Koin 4.0.2** — multiplatform DI
 - **Napier 2.7.1** — multiplatform logging
 - **kotlinx-serialization, kotlinx-coroutines, kotlinx-datetime, Okio**
+
+## Conventions
+
+- **Packages**: `com.drafty.shared` (KMP shared), `com.drafty.android` (Android app), `com.drafty.shared.data.db` (database)
+- **Expect/actual**: Used for platform abstractions (`DatabaseDriverFactory`, `getPlatformName()`). Actual implementations go in `androidMain`/`iosMain` source sets.
+- **Canvas dimensions**: Default page size is 1404x1984 (defined in SQLDelight schema defaults).
+- **Database file**: `drafty.db` on both platforms.
 
 ## Project Context
 
