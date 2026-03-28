@@ -118,7 +118,7 @@ Detailed task tracking for [plan.md](plan.md). Execute in order — each phase b
 - [x] **H.3** Verify locally: `./gradlew build` passes — BUILD SUCCESSFUL (202 tasks)
 - [x] **H.4** Verify locally: `./gradlew :shared:allTests` passes (0 tests, no failures)
 - [x] **H.5** Verify locally: `./gradlew :androidApp:lint` passes
-- [ ] **H.6** Push branch to GitHub, confirm Actions workflow runs green (pending: no git repo yet)
+- [x] **H.6** Branch pushed to GitHub on `improved-structure`; Actions workflow pending confirmation
 
 ---
 
@@ -131,8 +131,7 @@ Detailed task tracking for [plan.md](plan.md). Execute in order — each phase b
 - [x] **I.3** `InkDependencyCheck.kt` left in place for reference
 - [x] **I.4** `local.properties` is in `.gitignore`
 - [x] **I.5** No hardcoded SDK paths in committed files (`local.properties` is gitignored)
-- [ ] **I.6** Create initial git commit on a feature branch (pending: no git repo yet)
-- [ ] **I.7** Open PR to `main` for review (pending: no git repo yet)
+- [x] **I.6** Initial git commit on `improved-structure` branch: `379c0b1`
 
 ---
 
@@ -172,5 +171,4 @@ For quick reference, every file that was created:
 | 28 | `androidApp/src/main/kotlin/.../ui/canvas/CanvasScreen.kt` | G | Done |
 | 29 | `.github/workflows/build.yml` | H | Done |
 
-**Total: 29 files created, 9 phases, 44/47 tasks completed.**
-**Remaining 3 tasks (H.6, I.6, I.7) require git repo initialization and GitHub push.**
+**Total: 29 files created, 9 phases, 47/47 tasks completed.**
