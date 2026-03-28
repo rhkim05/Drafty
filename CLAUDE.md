@@ -4,7 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Workflow
 
-**Read [`workflow.md`](workflow.md) before starting any task.** This project uses a strict Research → Plan → Annotate → Implement pipeline. Never write code without an approved plan. Write research into `research.md`, plans into `plan.md`, iterate via inline annotation cycles, and only implement when explicitly told to. During implementation, mark tasks complete in the plan and run typecheck continuously.
+**Read [`workflow.md`](workflow.md) before starting any task.** This project uses a strict Research → Plan → Annotate → Implement pipeline. Never write code without an approved plan.
+
+Pipeline: [`research.md`](research.md) → [`plan.md`](plan.md) & [`TODO.md`](TODO.md) → Implementation.
+
+- **`research.md`** — Write findings here before planning. Review surface for verifying understanding.
+- **`plan.md`** — Detailed approach, code snippets, trade-offs. Iterated via annotation cycles.
+- **`TODO.md`** — Granular task checklist and progress tracking. Linked from `plan.md`, not duplicated there.
+
+During implementation, mark tasks complete in `TODO.md` and run typecheck continuously.
 
 ## Build & Development Commands
 

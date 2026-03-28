@@ -43,6 +43,9 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.sqldelight.android.driver)
             implementation(libs.kotlinx.coroutines.android)
+            implementation(libs.ink.brush)
+            implementation(libs.ink.strokes)
+            implementation(libs.ink.storage)
         }
 
         iosMain.dependencies {

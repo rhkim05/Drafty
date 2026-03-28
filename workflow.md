@@ -37,7 +37,7 @@ Before implementation, add a granular todo list to the plan with all phases and 
 
 ## Implementation
 
-When the plan is fully approved, execute everything in the plan. When done with a task or phase, mark it as completed in the plan document. Do not stop until all tasks and phases are completed.
+When the plan is fully approved, execute everything in the plan. When done with a task or phase, mark it as completed in the TODO.md document. Do not stop until all tasks and phases are completed.
 
 Rules during implementation:
 
@@ -63,4 +63,4 @@ The human makes all judgment calls; Claude handles mechanical execution. The hum
 
 Run research, planning, and implementation in a single long session. By the time implementation starts, Claude has built deep understanding through research and annotation cycles. The `plan.md` document survives context compaction and Claude can be pointed back to it at any time.
 
-**In one sentence:** Read deeply, write a plan, annotate the plan until it's right, then execute the whole thing without stopping, checking types along the way.
+**In one sentence:** Read deeply, write a plan, annotate the plan until it's right, then execute the whole thing without stopping, checking types along the way with TODO.md.

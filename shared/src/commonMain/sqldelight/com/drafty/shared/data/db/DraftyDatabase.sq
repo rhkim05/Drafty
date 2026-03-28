@@ -80,3 +80,25 @@ SELECT * FROM Page WHERE notebookId = ? ORDER BY pageIndex ASC;
 
 getStrokesForPage:
 SELECT * FROM Stroke WHERE pageId = ? ORDER BY strokeOrder ASC;
+
+insertStroke:
+INSERT INTO Stroke(id, pageId, brushType, brushSize, colorArgb, strokeOrder, inputData,
+                   boundingBoxX, boundingBoxY, boundingBoxW, boundingBoxH, createdAt)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+deleteStroke:
+DELETE FROM Stroke WHERE id = ?;
+
+deleteAllStrokesForPage:
+DELETE FROM Stroke WHERE pageId = ?;
+
+getMaxStrokeOrder:
+SELECT MAX(strokeOrder) FROM Stroke WHERE pageId = ?;
+
+getPageById:
+SELECT * FROM Page WHERE id = ?;
+
+insertPage:
+INSERT INTO Page(id, notebookId, pageIndex, pageType, width, height, templateType,
+                 pdfDocumentId, pdfPageIndex, createdAt)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);

@@ -962,27 +962,4 @@ These are needed for the `actual` StrokeSerializer on Android. Verify these are 
 
 ## Task Checklist
 
-### Phase 1A: Data Layer
-- [ ] Add missing SQLDelight queries (insertStroke, deleteStroke, etc.)
-- [ ] Create `StrokeData`, `StrokePoint`, `BrushConfig`, `BoundingBox` models
-- [ ] Create `Tool` enum
-- [ ] Implement `StrokeSerializer` expect/actual (android + ios stub)
-- [ ] Implement `StrokeRepository`
-- [ ] Update `SharedModule` Koin config
-
-### Phase 1B: State Management
-- [ ] Implement `CanvasStore` (MVI)
-- [ ] Update `AppModule` Koin config with CanvasStore factory
-
-### Phase 1C: Canvas UI
-- [ ] Implement `StrokeMapper` (InkStroke <-> StrokeData)
-- [ ] Implement `CanvasTouchListener` (stylus input + palm rejection)
-- [ ] Rewrite `CanvasScreen` with InProgressStrokesView + CanvasStrokeRenderer
-- [ ] Implement `CanvasToolbar` (color presets + brush size slider)
-
-### Phase 1D: Integration & Verification
-- [ ] Wire CanvasScreen to CanvasStore via Koin
-- [ ] Verify strokes persist across page close/reopen
-- [ ] Verify pressure sensitivity with stylus
-- [ ] Verify low-latency rendering on physical tablet
-- [ ] Run `./gradlew build` and `./gradlew :shared:allTests`
+See [TODO.md](TODO.md) for granular progress tracking.
