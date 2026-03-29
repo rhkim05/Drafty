@@ -99,7 +99,7 @@ Raw stylus input needs real-time processing: pressure-to-width curves, velocity-
 ### 5. Canvas Rendering at Scale
 
 A single canvas can accumulate thousands of strokes. The renderer must handle zoom levels from 50% to 400% without frame drops, efficiently cull off-screen strokes, and manage GPU memory for large canvases. The transition between "live" front-buffered rendering (current stroke) and "committed" back-buffered rendering (all previous strokes) must be seamless with no visual glitches.
-saf
+
 ### 6. PDF Rendering & Annotation Layering
 
 Imported PDFs must render crisply at all zoom levels while maintaining a clear separation between the read-only PDF layer and the editable annotation layer above it. Multi-page PDF support adds complexity around page navigation, memory management (not all pages can be decoded simultaneously), and ensuring annotations stay aligned with their underlying PDF content.
