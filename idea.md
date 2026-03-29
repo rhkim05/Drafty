@@ -163,8 +163,7 @@ These features are intentionally excluded from Drafty's roadmap to maintain simp
 | Real-time collaboration | Requires cloud infrastructure, adds latency to core experience |
 | Template marketplace / stickers / emojis | Bloat — core templates are sufficient |
 | Audio recording | Different use case, better served by dedicated apps |
-| Cloud sync | Adds complexity; local-first with manual export/backup is sufficient for v1 |
-| Subscription pricing | One-time purchase or free — no recurring revenue model |
+| Subscription pricing (full app) | Core app remains one-time purchase or free — subscription only for cloud sync premium feature |
 
 ---
 
