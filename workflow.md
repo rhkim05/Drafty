@@ -22,7 +22,7 @@ After research is reviewed, write a detailed `plan.md` for the task. The plan mu
 - File paths that will be modified
 - Considerations and trade-offs
 
-Use the project's own `.md` plan files, not built-in plan mode. These persist as real artifacts, are editable in any editor, and serve as shared mutable state between the human and Claude. When the human shares code from open-source repos or existing project patterns, use them as concrete references rather than designing from scratch.
+When the human shares code from open-source repos or existing project patterns, use them as concrete references rather than designing from scratch.
 
 ### TODO List
 

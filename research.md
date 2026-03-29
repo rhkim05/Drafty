@@ -190,7 +190,7 @@ data class InputPoint(
 )
 ```
 
-Captures full stylus data: position, pressure, tilt, orientation, timestamp. Preserves all data needed for both Android (androidx.ink) and iOS (Apple Pencil) rendering.
+Captures full stylus data: position, pressure, tilt, orientation, timestamp. Preserves all data needed for both Android (androidx.ink) and iOS (Apple Pencil) rendering. Note: Apple Pencil uses azimuth/altitude rather than tilt/orientation — mathematically translatable but the adapter will need coordinate system conversion, not a direct pass-through.
 
 ### BoundingBox
 
@@ -220,7 +220,7 @@ data class Stroke(
 )
 ```
 
-**`colorArgb: Long`** — This is intentional. When passing ARGB values with high alpha bits across the KMP boundary, `Int` causes sign-extension bugs. `Long` avoids this.
+**`colorArgb: Long`** — Avoids sign-extension when high-alpha ARGB values cross the JVM/KMP boundary (e.g., `0xFFFF0000` overflows a signed `Int` to negative). `Long` sidesteps this. Note: `ActiveToolState.colorArgb` is `Int`, and `CanvasViewModel.setColor()` does a `toInt()` conversion — this Long/Int inconsistency should be unified in implementation. Compose Multiplatform's `Color` inline class (backed by `ULong`) is the idiomatic alternative but adds conversion overhead at the rendering boundary.
 
 ### Canvas
 
@@ -335,12 +335,14 @@ fun DrawingCanvas(viewModel: CanvasViewModel, modifier: Modifier) {
 
 The `update` block fires on every recomposition (i.e., every state change), rebinding the latest `CanvasState` to the committed view.
 
+**Lifecycle note:** The current code uses `collectAsState()` to observe the ViewModel's StateFlow. On Android, `collectAsStateWithLifecycle()` is the recommended alternative — it stops collection when the app is backgrounded, avoiding unnecessary work and potential resource leakage. Since `DrawingCanvas` is in `androidMain`, switching is straightforward.
+
 ### Performance Optimizations
 
 1. **Spatial index culling** — `StrokeSpatialIndex.query(visibleRegion)` returns only strokes overlapping the viewport. O(visible) not O(all).
-2. **RenderableStrokeCache** — Avoids converting shared `Stroke` → `androidx.ink.strokes.Stroke` every frame. Cache keyed by `StrokeId`, entries created on first render.
+2. **RenderableStrokeCache** — Avoids converting shared `Stroke` → `androidx.ink.strokes.Stroke` every frame. Cache keyed by `StrokeId`, entries created on first render. **Risk:** Currently an unbounded `HashMap` — heavy canvases (thousands of strokes) could cause OOM. Should add viewport-based eviction or an LRU cap before production.
 3. **Template culling** — `TemplateRenderer` only draws lines/grid/dots within the visible viewport region.
-4. **PDF caching** — `PdfPageRenderer` rasterizes to a cached `Bitmap`, re-renders only when zoom changes by >2x.
+4. **PDF caching** — `PdfPageRenderer` rasterizes to a cached `Bitmap`, re-renders only when zoom changes by >2x. **Limitation:** Single-bitmap approach — rasterizing at high zoom on high-res tablets (e.g., Galaxy Tab S9 Ultra at 400%) will allocate a very large bitmap. Tiled rendering (à la SubsamplingScaleImageView) is the standard approach for large documents but is a significant engineering effort. Acceptable for v1 with a reasonable max zoom cap.
 5. **Front-buffered rendering** — `InProgressStrokesView` bypasses double-buffered pipeline for the live stroke, achieving sub-frame latency.
 
 ### BrushProvider
@@ -515,6 +517,8 @@ class CanvasViewModel(
 
 All canvas mutations go through the `UndoRedoManager` → `DrawCommand` pipeline. Tool state changes are direct `_toolState.update` calls (not undoable).
 
+**ViewModel lifecycle note:** `CanvasViewModel` is a plain Kotlin class in `commonMain` — it does not extend `androidx.lifecycle.ViewModel`. This means it won't automatically survive Android configuration changes (screen rotation). The implementation must either: (a) retain it via a `ViewModelStoreOwner` wrapper in `androidMain`, (b) use the KMP multiplatform lifecycle library (`androidx.lifecycle:lifecycle-viewmodel` for commonMain, available since KMP 1.6+), or (c) lock screen orientation for the canvas screen. This needs to be addressed during implementation.
+
 ### DrawCommand Interface
 
 ```kotlin
@@ -662,6 +666,7 @@ Key behaviors:
 - **Cancel optimization** — If a stroke is added then deleted within the debounce window (e.g., rapid undo), the add is cancelled from pending inserts and no delete is queued. Net DB writes: zero.
 - **Force flush** — Called on `Lifecycle.ON_STOP` and `ViewModel.onCleared()`. Guarantees no data loss even if the app is killed.
 - **In-memory is source of truth** — DB writes never block the UI. The rendering always reads from `CanvasState`, not from the database.
+- **Crash window trade-off** — Between a stroke being committed to in-memory state and the debounced DB write (up to 300ms), a process-kill loses that stroke. The `flush()` on `ON_STOP` covers normal backgrounding; only a hard crash during active drawing loses data. This is an accepted trade-off for write coalescing performance.
 
 ### Repository Interfaces
 
@@ -752,6 +757,8 @@ expect class CanvasExportRenderer {
 
 Android implementation uses `android.graphics.pdf.PdfDocument` for PDF and `Bitmap` + PNG compression for images. Both composite the PDF backing (if any), template, and all strokes in the correct layer order.
 
+**Implementation note:** `DraftyExporter` and `DraftyImporter` involve ZIP compression and file I/O. Implementations must run on `Dispatchers.IO` — running synchronously on the main thread will cause ANR on large canvases.
+
 ---
 
 ## 10. Spatial Indexing
@@ -836,7 +843,20 @@ The project has a complete architecture design (documented in `architecture.md` 
 
 ---
 
-## 13. Key Design Decisions
+## 13. Known Risks & Limitations
+
+| Risk | Severity | Detail | Mitigation |
+|------|----------|--------|------------|
+| **androidx.ink is alpha01** | High | The entire rendering pipeline depends on `1.0.0-alpha01`. API will change, documentation is sparse, native crashes are likely. | Pin version, isolate behind `StrokeAdapter`/`RenderableStroke` abstractions so API changes don't propagate. Monitor release notes. |
+| **Unbounded RenderableStrokeCache** | Medium | HashMap grows with every stroke ever rendered. No eviction. OOM risk on heavy canvases. | Add LRU eviction or viewport-based cleanup before production. |
+| **PDF single-bitmap rasterization** | Medium | High-zoom rendering on high-res tablets allocates oversized bitmaps. | Cap max zoom for PDF canvases in v1. Tiled rendering for v2. |
+| **ViewModel doesn't survive config changes** | Medium | `CanvasViewModel` is a plain class, not `androidx.lifecycle.ViewModel`. Screen rotation destroys state. | Use KMP multiplatform lifecycle ViewModel or lock orientation on canvas screen. |
+| **collectAsState() lifecycle leak** | Low | Flow collection continues when app is backgrounded. | Switch to `collectAsStateWithLifecycle()` in `DrawingCanvas`. |
+| **Long/Int colorArgb inconsistency** | Low | `Stroke.colorArgb` is `Long`, `ActiveToolState.colorArgb` is `Int`. Conversion in ViewModel. | Unify to one type during implementation. |
+
+---
+
+## 14. Key Design Decisions
 
 | Decision | Rationale | Escape Hatch |
 |----------|-----------|--------------|
