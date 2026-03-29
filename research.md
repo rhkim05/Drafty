@@ -95,7 +95,7 @@ kotlin/com/drafty/android/
 
 res/values/
   strings.xml              App name only
-  themes.xml               Material Light theme, no action bar
+  themes.xml               Dark theme (splash/system bars), no action bar
   colors.xml               Empty
 ```
 
@@ -875,3 +875,89 @@ The project has a complete architecture design (documented in `architecture.md` 
 | Wire Protobuf (not FlatBuffers) | Mature tooling, good KMP support, schema evolution. FlatBuffers would be faster but less mature for KMP. | Switch to FlatBuffers if deserialization profiled as bottleneck |
 | SQLDelight (not Room) | KMP-first design, more battle-tested for multiplatform | Room 2.7+ is viable alternative |
 | v1 cloud sync = manual export/import via share sheet | Zero infrastructure. User saves `.drafty` files to Drive/email/files app. | Supabase for real sync in v2+ |
+
+---
+
+## 15. Theming — Neon/Cyberpunk Minimalism
+
+### Design Direction
+
+Dark-first UI with vibrant neon accent colors on near-black surfaces. No Material Design theming — custom `CompositionLocal`-based theme system for cross-platform consistency (Android + future iOS).
+
+### Color Palette
+
+| Role | Hex | Usage |
+|------|-----|-------|
+| `background` | `#0D0D11` | App background, canvas list |
+| `surface` | `#1A1A2E` | Cards, panels, toolbar |
+| `surfaceVariant` | `#13131A` | Sidebar, secondary surfaces |
+| `primary` | `#7C3AED` | FAB, selected/active states, primary interactive elements |
+| `accentPink` | `#E040A0` | Folder/canvas color tag, category indicator |
+| `accentBlue` | `#3B82F6` | Folder/canvas color tag, category indicator |
+| `accentGreen` | `#22C55E` | Folder/canvas color tag, category indicator |
+| `accentRed` | `#EF4444` | Folder/canvas color tag, destructive actions |
+| `textPrimary` | `#E8E8EE` | Headings, titles, primary text |
+| `textSecondary` | `#6B6B80` | Dates, metadata, muted labels |
+| `border` | `#2A2A3C` | Card borders, dividers |
+
+### Design Characteristics
+
+- **Dark-only** for v1 (no light mode variant)
+- **Neon accent strips** — thin colored bars at card tops for visual category/folder markers
+- **Purple as brand color** — used for all primary interactive elements (FAB, active states, selections)
+- **Minimal chrome** — no shadows, no gradients, flat dark surfaces with subtle borders
+- **High contrast text** — off-white on near-black for readability
+
+### Architecture: Custom CompositionLocal Theme
+
+No `MaterialTheme` — define a custom `DraftyTheme` with a `DraftyColors` data class provided via `CompositionLocalProvider`. This approach:
+
+1. **Cross-platform portable** — works identically on Android and iOS Compose Multiplatform
+2. **Easy to change** — all colors in one data class; swap the instance to change the entire theme
+3. **Extensible** — add dark/light variants later by providing different `DraftyColors` instances
+4. **No Material baggage** — no need to fight Material component defaults or override dozens of color slots
+
+```kotlin
+// DraftyColors — single source of truth for all colors
+data class DraftyColors(
+    val background: Color,
+    val surface: Color,
+    val surfaceVariant: Color,
+    val primary: Color,
+    val accentPink: Color,
+    val accentBlue: Color,
+    val accentGreen: Color,
+    val accentRed: Color,
+    val textPrimary: Color,
+    val textSecondary: Color,
+    val border: Color,
+)
+
+// Provided via CompositionLocal
+val LocalDraftyColors = staticCompositionLocalOf { DarkColors }
+
+// Accessed via DraftyTheme.colors.background, etc.
+object DraftyTheme {
+    val colors: DraftyColors
+        @Composable get() = LocalDraftyColors.current
+}
+```
+
+### FolderColor Mapping (updated for dark theme)
+
+The existing `FolderColor` enum values map to neon accent colors that pop against the dark background:
+
+| FolderColor | Hex | Note |
+|-------------|-----|------|
+| Red | `#EF4444` | Matches `accentRed` |
+| Orange | `#F97316` | Warm neon orange |
+| Yellow | `#EAB308` | Gold/amber — brighter than typical yellow for dark bg |
+| Green | `#22C55E` | Matches `accentGreen` |
+| Blue | `#3B82F6` | Matches `accentBlue` |
+| Purple | `#7C3AED` | Matches `primary` |
+| Pink | `#E040A0` | Matches `accentPink` |
+| Gray | `#6B7280` | Neutral, slightly lighter than `textSecondary` |
+
+### Material 3 Components on Dark Theme
+
+Even without `MaterialTheme` color scheme, Compose Multiplatform's `material3` library is still used for structural components (`Scaffold`, `FloatingActionButton`, `AlertDialog`, `Card`, etc.). These components will be individually styled using `DraftyTheme.colors` via explicit `colors` parameters (e.g., `CardDefaults.cardColors(containerColor = DraftyTheme.colors.surface)`). This avoids depending on Material's built-in color propagation while still leveraging the layout/interaction patterns.
