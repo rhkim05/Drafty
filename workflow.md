@@ -2,33 +2,7 @@
 
 This project follows a strict pipeline where planning and execution are always separated. Never write code until a written plan has been reviewed and approved.
 
-## Phase 1: Product Definition (One-Time Setup)
-
-These steps establish the project foundation. Each produces a persistent `.md` artifact that the human reviews before the next step begins.
-
-### Idea
-
-The human writes raw notes into `idea.md`. When they add notes or questions, Claude addresses all of them and updates the document. **Don't implement.**
-
-### Vision
-
-Read `idea.md` in depth. Write a `vision.md` describing the product, its core features, target users, and the key technical challenges involved.
-
-### Tech Stack
-
-Based on `vision.md`, research and recommend a tech stack. Cover rendering engine, app framework, state management, file storage format, and cloud sync approach. For each decision, explain the options, trade-offs, and recommendation. Write into `tech-stack.md`. **Present options for the human to choose from — don't make final decisions.**
-
-### Architecture
-
-Based on `vision.md` and `tech-stack.md`, design the system architecture. Cover the rendering pipeline, data model (notebooks, pages, strokes, layers), storage layer (local persistence and sync), and module boundaries. Write into `architecture.md` with text diagrams and code snippets showing key data structures.
-
-### Project Structure
-
-Based on `architecture.md`, design the folder structure. Create `project-structure.md` showing every directory with explanations. Follow framework conventions. Group by feature, not by file type. Include where tests, assets, configs, and shared utilities live.
-
-Then scaffold the actual folder structure with minimal boilerplate — empty files or module exports only. **No real logic.**
-
-## Phase 2: Research
+## Phase 1: Research
 
 Before touching any code, deeply read and understand the relevant part of the codebase. Write findings into a persistent `research.md` file — never just summarize verbally in chat. Read folders, modules, and flows in depth. Surface-level skimming is not acceptable. Document how things work, their specificities, edge cases, and potential issues.
 
@@ -39,7 +13,7 @@ Two forms of research:
 
 The research file is a review surface for the human to verify understanding before planning begins. The most expensive failure mode is code that works in isolation but breaks the surrounding system — ignoring an existing layer, duplicating logic, or violating conventions. Research prevents this.
 
-## Phase 3: Planning
+## Phase 2: Planning
 
 After research is reviewed, write a detailed `plan.md` for the task. The plan must include:
 
@@ -56,7 +30,7 @@ After the plan, add a detailed `TODO.md` with all phases and individual tasks ne
 
 When the human adds notes to `TODO.md` (e.g., flagging errors), address why the issues happen and how to fix them in the document. **Don't implement yet.**
 
-## Phase 4: Annotation Cycle
+## Phase 3: Annotation Cycle
 
 This is where the human adds the most value, and it repeats 1-6 times:
 
@@ -70,7 +44,7 @@ The **"don't implement yet"** guard is mandatory. Without it, Claude will jump t
 
 Inline notes can be anything: correcting assumptions, rejecting approaches, adding constraints, providing domain knowledge, redirecting entire sections, or even just two words like "not optional."
 
-## Phase 5: Implementation
+## Phase 4: Implementation
 
 When the plan is fully approved, execute everything in the plan. When done with a task or phase, mark it as completed in `TODO.md`. **Do not stop until all tasks and phases are completed.**
 
@@ -98,4 +72,4 @@ The human makes all judgment calls; Claude handles mechanical execution. The hum
 
 Run research, planning, and implementation in a single long session. By the time implementation starts, Claude has built deep understanding through research and annotation cycles. The `plan.md` document survives context compaction and Claude can be pointed back to it at any time.
 
-**In one sentence:** Define the product, research deeply, write a plan, annotate the plan until it's right, then execute the whole thing without stopping, checking types along the way with TODO.md.
+**In one sentence:** Research deeply, write a plan, annotate the plan until it's right, then execute the whole thing without stopping, checking types along the way with TODO.md.

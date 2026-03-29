@@ -6,19 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Read [`workflow.md`](workflow.md) before starting any task.** This project uses a strict multi-phase pipeline. Never write code without an approved plan.
 
-### Product Definition (one-time setup)
-
-`idea.md` → `vision.md` → `tech-stack.md` → `architecture.md` → `project-structure.md`
-
-- **`idea.md`** — Raw product notes. User adds notes; Claude addresses them and updates the document. Don't implement.
-- **`vision.md`** — Product description: core features, target users, key technical challenges. Derived from `idea.md`.
-- **`tech-stack.md`** — Research and recommend tech stack options with trade-offs. Present options for the user to choose — don't make final decisions.
-- **`architecture.md`** — System architecture: rendering pipeline, data model, storage layer, module boundaries. Include text diagrams and key data structures.
-- **`project-structure.md`** — Folder structure with explanations. Then scaffold the actual directories with minimal boilerplate (empty files or module exports only — no real logic).
-
-### Feature Development (repeating cycle)
-
-`research.md` → `plan.md` & `TODO.md` → Annotate → Implementation
+Pipeline: `research.md` → `plan.md` & `TODO.md` → Annotate → Implementation
 
 - **`research.md`** — Deep reading of relevant code/folders. Write detailed findings here before planning. Review surface for verifying understanding.
 - **`plan.md`** — Detailed approach, code snippets, trade-offs. Iterated via annotation cycles.
