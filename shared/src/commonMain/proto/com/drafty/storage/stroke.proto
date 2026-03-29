@@ -1,0 +1,29 @@
+syntax = "proto3";
+package com.drafty.storage;
+option java_package = "com.drafty.storage.proto";
+
+message StrokePointProto {
+    float x = 1;
+    float y = 2;
+    float pressure = 3;
+    float tilt_radians = 4;
+    float orientation_radians = 5;
+    sint64 timestamp_ms = 6;
+}
+
+message StrokePointListProto {
+    repeated StrokePointProto points = 1;
+    float bounds_min_x = 2;
+    float bounds_min_y = 3;
+    float bounds_max_x = 4;
+    float bounds_max_y = 5;
+}
+
+message StrokeExportProto {
+    string id = 1;
+    int32 sort_order = 2;
+    string tool_type = 3;
+    int64 color = 4;
+    float size = 5;
+    StrokePointListProto point_data = 6;
+}
