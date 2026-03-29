@@ -4,7 +4,7 @@ class Person:
     '''
     name: str
     age: int
-    print()
+    
     def __init__(self):
         self.name ='df'
         self.age = 13
