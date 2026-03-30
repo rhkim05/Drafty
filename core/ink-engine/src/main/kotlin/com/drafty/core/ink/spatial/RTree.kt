@@ -1,6 +1,6 @@
 package com.drafty.core.ink.spatial
 
-import com.drafty.core.ink.stroke.Stroke
+import com.drafty.core.domain.model.Stroke
 
 /**
  * R-tree spatial index for efficient stroke lookup and collision detection.

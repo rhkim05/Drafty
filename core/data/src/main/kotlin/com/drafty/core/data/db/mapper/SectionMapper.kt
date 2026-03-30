@@ -1,7 +1,7 @@
 package com.drafty.core.data.db.mapper
 
 import com.drafty.core.data.db.entity.SectionEntity
-import com.drafty.core.model.Section
+import com.drafty.core.domain.model.Section
 
 fun SectionEntity.toDomain(): Section =
     Section(

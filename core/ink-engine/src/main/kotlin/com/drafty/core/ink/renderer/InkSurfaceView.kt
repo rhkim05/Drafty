@@ -53,7 +53,7 @@ class InkSurfaceView @JvmOverloads constructor(
     var currentTool: Tool = Tool.PEN
     var currentColor: Long = 0xFF000000
     var currentThickness: Float = 4f
-    var backgroundColor: Int = Color.WHITE
+    var canvasBackgroundColor: Int = Color.WHITE
 
     /** Callback when a stroke is completed. */
     var onStrokeCompleted: ((Stroke) -> Unit)? = null
@@ -297,7 +297,7 @@ class InkSurfaceView @JvmOverloads constructor(
             try {
                 synchronized(lock) {
                     // Clear background
-                    canvas.drawColor(backgroundColor)
+                    canvas.drawColor(canvasBackgroundColor)
 
                     // Draw completed strokes from cached bitmap
                     completedBitmap?.let { bitmap ->

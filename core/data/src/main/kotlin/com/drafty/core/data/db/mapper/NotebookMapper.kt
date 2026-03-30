@@ -1,7 +1,7 @@
 package com.drafty.core.data.db.mapper
 
 import com.drafty.core.data.db.entity.NotebookEntity
-import com.drafty.core.model.Notebook
+import com.drafty.core.domain.model.Notebook
 
 fun NotebookEntity.toDomain(): Notebook =
     Notebook(

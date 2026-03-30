@@ -1,11 +1,8 @@
 package com.drafty.core.ink.renderer
 
-import androidx.compose.runtime.Stable
-
 /**
  * Manages zoom level, pan offset, and viewport culling for the canvas.
  */
-@Stable
 data class ViewportState(
     val zoomLevel: Float = 1.0f,
     val panOffsetX: Float = 0.0f,

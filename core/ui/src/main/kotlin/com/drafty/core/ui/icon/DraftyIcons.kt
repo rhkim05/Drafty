@@ -1,27 +1,32 @@
 package com.drafty.core.ui.icon
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.extended.Add
-import androidx.compose.material.icons.extended.Delete
-import androidx.compose.material.icons.extended.Edit
-import androidx.compose.material.icons.extended.FileDownload
-import androidx.compose.material.icons.extended.History
-import androidx.compose.material.icons.extended.Info
-import androidx.compose.material.icons.extended.Search
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.outlined.BorderColor
+import androidx.compose.material.icons.outlined.Draw
+import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.HighlightAlt
+import androidx.compose.ui.graphics.vector.ImageVector
 
 /**
- * Icon definitions for the Drafty application using Material Icons Extended.
+ * Icon definitions for the Drafty application using Material Icons.
  */
 object DraftyIcons {
-    val Pen = Icons.Extended.Edit
-    val Highlighter = Icons.Extended.Edit
-    val Eraser = Icons.Extended.Delete
-    val Lasso = Icons.Extended.Edit
-    val Undo = Icons.Extended.History
-    val Redo = Icons.Extended.History
-    val Add = Icons.Extended.Add
-    val Delete = Icons.Extended.Delete
-    val Export = Icons.Extended.FileDownload
-    val Search = Icons.Extended.Search
-    val Info = Icons.Extended.Info
+    val Pen: ImageVector = Icons.Outlined.Draw
+    val Highlighter: ImageVector = Icons.Outlined.BorderColor
+    val Eraser: ImageVector = Icons.Filled.Delete
+    val Lasso: ImageVector = Icons.Outlined.HighlightAlt
+    val Undo: ImageVector = Icons.AutoMirrored.Filled.Undo
+    val Redo: ImageVector = Icons.AutoMirrored.Filled.Redo
+    val Add: ImageVector = Icons.Filled.Add
+    val Delete: ImageVector = Icons.Filled.Delete
+    val Export: ImageVector = Icons.Outlined.FileDownload
+    val Search: ImageVector = Icons.Filled.Search
+    val Info: ImageVector = Icons.Filled.Info
 }

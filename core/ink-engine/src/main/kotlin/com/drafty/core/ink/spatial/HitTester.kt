@@ -1,6 +1,6 @@
 package com.drafty.core.ink.spatial
 
-import com.drafty.core.ink.stroke.Stroke
+import com.drafty.core.domain.model.Stroke
 
 /**
  * Performs stroke hit testing for eraser, selection, and interaction detection.

@@ -1,9 +1,9 @@
 package com.drafty.core.data.db.mapper
 
 import com.drafty.core.data.db.entity.PageEntity
-import com.drafty.core.model.Page
-import com.drafty.core.model.PageType
-import com.drafty.core.model.PaperTemplate
+import com.drafty.core.domain.model.Page
+import com.drafty.core.domain.model.PageType
+import com.drafty.core.domain.model.PaperTemplate
 
 fun PageEntity.toDomain(): Page =
     Page(

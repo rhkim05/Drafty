@@ -1,8 +1,8 @@
 package com.drafty.core.data.repository
 
 import com.drafty.core.data.file.StrokeFileManager
+import com.drafty.core.domain.model.Stroke
 import com.drafty.core.domain.repository.StrokeRepository
-import com.drafty.core.model.Stroke
 import javax.inject.Inject
 
 class StrokeRepositoryImpl @Inject constructor(

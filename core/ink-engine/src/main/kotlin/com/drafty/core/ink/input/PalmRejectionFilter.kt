@@ -73,9 +73,15 @@ class PalmRejectionFilter {
                 activeStylusPointers.add(pointerId)
                 FilterResult.ACCEPT_DRAW
             }
-            MotionEvent.TOOL_TYPE_FINGER -> {
+            MotionEvent.TOOL_TYPE_FINGER,
+            MotionEvent.TOOL_TYPE_MOUSE -> {
                 if (isStylusActive) FilterResult.IGNORED
-                else FilterResult.ACCEPT_GESTURE
+                else {
+                    // Allow finger/mouse drawing when no stylus is present
+                    // (enables emulator testing and non-stylus devices)
+                    activeStylusPointers.add(pointerId)
+                    FilterResult.ACCEPT_DRAW
+                }
             }
             MotionEvent.TOOL_TYPE_ERASER -> {
                 activeStylusPointers.add(pointerId)

@@ -5,17 +5,22 @@ import javax.inject.Inject
 
 class PdfRepositoryImpl @Inject constructor() : PdfRepository {
 
-    override suspend fun exportPageToPdf(pageId: String): String {
-        // TODO: Implement page to PDF export
-        return ""
+    override suspend fun importPdf(sourceUri: String, notebookId: String): Result<Int> {
+        // TODO: Implement PDF import
+        return Result.success(0)
     }
 
-    override suspend fun exportNotebookToPdf(notebookId: String): String {
-        // TODO: Implement notebook to PDF export
-        return ""
+    override suspend fun getPageCount(notebookId: String): Int {
+        // TODO: Implement page count retrieval
+        return 0
     }
 
-    override suspend fun importPdfAsPages(pdfPath: String, sectionId: String) {
-        // TODO: Implement PDF import as pages
+    override suspend fun exportAnnotatedPdf(notebookId: String, outputPath: String): Result<String> {
+        // TODO: Implement annotated PDF export
+        return Result.success(outputPath)
+    }
+
+    override suspend fun deletePdf(notebookId: String) {
+        // TODO: Implement PDF deletion
     }
 }
