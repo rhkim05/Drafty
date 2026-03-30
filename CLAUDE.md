@@ -84,13 +84,27 @@ Two Gradle modules (`:shared` and `:androidApp`). Almost all code lives in `:sha
 - androidx.ink 1.0.0-alpha01 (authoring, rendering, strokes, brush, geometry)
 - kotlinx-coroutines 1.9.0
 
+### Navigation
+
+Two-screen model: **LibraryScreen** (folder/canvas grid) ↔ **CanvasScreen** (drawing surface). Wired in `DraftyApp` composable, which is the root navigation host called from `MainActivity`.
+
+### Dependency Wiring
+
+No DI framework. Dependencies are manually constructed and passed via ViewModel constructors. Platform abstractions use Kotlin `expect`/`actual` (e.g., `DatabaseDriverFactory`, `PlatformPdfRenderer`, `UuidGenerator`, `TimeProvider`).
+
 ### Key Patterns
 
 **MVVM + Command Pattern:** `CanvasViewModel` exposes `StateFlow<CanvasState>`. All canvas mutations go through `DrawCommand` implementations (`AddStrokeCommand`, `EraseStrokeCommand`, `PartialEraseCommand`, `LassoMoveCommand`, `LassoDeleteCommand`, `LassoRecolorCommand`) managed by `UndoRedoManager`.
 
-**Dual-Buffer Rendering (Android):** Live strokes render via `InProgressStrokesView` (androidx.ink front-buffered SurfaceView for sub-frame latency). On stroke completion, `StrokeCommitHandler` converts to the shared `Stroke` model and `CommittedStrokeView` composites template + highlighter + ink layers in its `onDraw`. Both views are hosted in `DrawingCanvas` composable via `AndroidView` interop.
+**Dual-Buffer Rendering (Android):** Live strokes render via `InProgressStrokesView` (androidx.ink front-buffered SurfaceView for sub-frame latency). On stroke completion, `StrokeCommitHandler` converts to the shared `Stroke` model and `CommittedStrokeView` composites template + highlighter + ink layers in its `onDraw`. Both views are hosted in `DrawingCanvas` composable via `AndroidView` interop. Layer order in `CommittedStrokeView.onDraw`: template → highlighter strokes → pen ink strokes.
+
+**Spatial Indexing:** Grid-based `StrokeSpatialIndex` (256px cells) provides O(visible) culling for rendering and eraser hit-testing via `query(BoundingBox) → Set<StrokeId>`.
 
 **No shared renderer abstraction** — Android uses androidx.ink, future iOS will use PencilKit. Both consume the shared `Stroke` data model via platform-specific adapters (`StrokeAdapter`).
+
+### Stroke Data Flow
+
+Touch → `StrokeInputHandler` → `InProgressStrokesView` (live render) → on `ACTION_UP` → `StrokeCommitHandler` converts `androidx.ink.strokes.Stroke` → shared `Stroke` via `StrokeAdapter` → `CanvasViewModel.commitStroke()` → `AddStrokeCommand.execute()` → `CanvasState` updated → `CommittedStrokeView.invalidate()` → `UndoRedoManager.push()` → `AutosaveManager.debounce()` → `StrokeRepository.save()`.
 
 ### Persistence
 
