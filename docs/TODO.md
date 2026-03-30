@@ -57,17 +57,57 @@
 
 ## Phase 2: Canvas & Page Management (Not Started)
 
-> See [plan.md — Phase 2](./plan.md) for details.
+> See [plan.md — Phase 2](./plan.md) | [research.md — Phase 2](./research.md) for details.
 
-- ⬜ Implement paginated canvas mode with paper templates
-- ⬜ Implement infinite whiteboard mode
-- ⬜ Implement `ViewportManager` — zoom/pan/viewport culling
-- ⬜ Implement `GestureDetector` — pinch-to-zoom, two-finger pan
-- ⬜ Implement `UndoManager` with command pattern
-- ⬜ Implement `RTree` spatial index
-- ⬜ Implement `HitTester` for eraser and lasso selection
-- ⬜ Implement lasso select tool (move, resize, copy, delete strokes)
-- ⬜ Implement page navigation (swipe, thumbnails sidebar)
+### 2A. Spatial Index & Hit Testing
+- ⬜ Add `BoundingBox` data class to `:core:domain` model; add `computeBoundingBox()` extension on `Stroke`
+- ⬜ Implement `RTree` as grid-based spatial index (256px cells, `HashMap<Pair<Int,Int>, MutableList<String>>`); support insert, remove, query(rect), clear
+- ⬜ Implement `HitTester` — point hit test (eraser: coarse phase via RTree → fine phase point distance), rect intersection (viewport culling), path intersection (lasso polygon via ray-casting)
+- ⬜ Wire eraser tool in `InkSurfaceView` to use `HitTester` for whole-stroke deletion on touch
+
+### 2B. ViewportManager & Zoom/Pan
+- ⬜ Implement `ViewportManager` — store zoom level + pan offset; expose canvas↔screen coordinate transforms (forward and inverse); clamp zoom to [0.25, 5.0] paginated / [0.1, 10.0] whiteboard; compute visible viewport rect in canvas coords
+- ⬜ Implement focal-point zoom — adjust pan offset on zoom change so pinch center stays fixed: `newPan = focal - (focal - pan) × (z₁ / z₀)`
+- ⬜ Implement pan clamping for paginated mode (page must stay partially visible); free pan for whiteboard mode
+- ⬜ Integrate `ViewportManager` into `InkSurfaceView` — apply `canvas.translate/scale` before drawing; inverse-transform touch input before feeding to `InputProcessor`
+- ⬜ Implement zoom-aware bitmap caching — scale existing bitmap during pinch, debounced re-rasterize (300ms) at new zoom level in background
+
+### 2C. GestureDetector — Pinch & Pan
+- ⬜ Implement `GestureDetector` using Android `ScaleGestureDetector` for pinch zoom + manual two-pointer tracking for pan; `OverScroller` for fling momentum
+- ⬜ Implement gesture arbitration in `InkSurfaceView.onTouchEvent()` — stylus → draw; 2-finger → zoom/pan; 1-finger → pan (stylus-only mode default)
+- ⬜ Implement double-tap to reset zoom — `ValueAnimator` to animate zoom → 1.0 and re-center page
+
+### 2D. Paper Templates & Paginated Mode
+- ⬜ Add `TemplateConfig` data class to `:core:domain` (type, lineColor, lineSpacing, marginX, marginColor)
+- ⬜ Implement template rendering in `InkSurfaceView` — draw BLANK, LINED, GRID, DOTTED, CORNELL patterns as first layer; hairline stroke width (`1f / zoom`) for zoom-independent crispness
+- ⬜ Implement page bounds clipping in paginated mode — `canvas.clipRect(0, 0, page.width, page.height)` during stroke rendering
+- ⬜ Wire `CanvasViewModel` canvas mode switching (PAGINATED ↔ WHITEBOARD); toggle ViewportManager bounds, template visibility, and page navigation UI
+
+### 2E. Stroke Persistence (StrokeFileManager)
+- ⬜ Implement `StrokeFileManager` — protobuf serialization/deserialization using generated classes; file path: `{internal_storage}/strokes/{pageId}.pb`
+- ⬜ Wire `StrokeRepositoryImpl` to delegate to `StrokeFileManager`
+- ⬜ Inject `LoadStrokesUseCase` and `SaveStrokesUseCase` into `CanvasViewModel`; load strokes on page open, auto-save with 500ms debounce after each stroke completion
+- ⬜ Implement save on page navigation and app background (`Lifecycle.Event.ON_STOP`)
+
+### 2F. Page Navigation & Management
+- ⬜ Implement `PageNavigator` composable — forward/back buttons + page indicator ("3 / 12")
+- ⬜ Implement `CanvasViewModel` page navigation — `nextPage()`, `previousPage()`, `goToPage(index)` with auto-save current → clear → load new
+- ⬜ Wire `AddPageUseCase` and `DeletePageUseCase` into CanvasViewModel for add/delete page from canvas screen
+
+### 2G. Lasso Selection Tool
+- ⬜ Implement lasso path capture — when tool=LASSO, collect touch points into a closed polygon
+- ⬜ Implement lasso selection via `HitTester.intersectsPath()` — select strokes whose bounding box center is inside polygon
+- ⬜ Implement selection UI overlay — highlight selected strokes, show bounding box with drag handles
+- ⬜ Implement selection actions — move (offset all points by drag delta), copy (duplicate with new IDs), delete (remove + record command); all through `UndoManager`
+- ⬜ Add `MoveStrokesCommand` and `DeleteStrokesCommand` (batch) to undo system
+
+### 2H. Verification
+- ⬜ Verify pinch-to-zoom is smooth (no frame stutter) with 200+ strokes
+- ⬜ Verify viewport culling — only visible strokes render (log stroke count per frame)
+- ⬜ Verify eraser correctly deletes touched strokes via spatial index
+- ⬜ Verify page navigation saves/loads strokes correctly (round-trip protobuf)
+- ⬜ Verify lasso select → move → undo restores original positions
+- ⬜ Verify paper templates render at correct spacing and remain crisp across zoom levels
 
 ---
 
