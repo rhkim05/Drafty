@@ -50,7 +50,7 @@ kotlin/com/drafty/
   export/         DraftyExporter, DraftyImporter, PdfImportUseCase,
                   PlatformPdfRenderer (expect)
   ui/             LibraryScreen, LibraryViewModel, CanvasScreen, DraftyTheme
-  util/           generateUuid() (expect), currentTimeMillis() (expect)
+  util/           currentTimeMillis() (expect)
 
 proto/com/drafty/storage/
   stroke.proto
@@ -72,7 +72,7 @@ kotlin/com/drafty/
   persistence/    DatabaseDriverFactoryAndroid, SqlDelightCanvasRepository,
                   SqlDelightFolderRepository, SqlDelightStrokeRepository
   export/         PlatformPdfRendererAndroid, CanvasExportRenderer
-  util/           UuidGeneratorAndroid, TimeProviderAndroid
+  util/           TimeProviderAndroid
 ```
 
 ### shared/iosMain — iOS stubs (all empty, future port)
@@ -84,7 +84,7 @@ kotlin/com/drafty/
   adapter/        StrokeAdapter
   persistence/    DatabaseDriverFactoryIos
   export/         PlatformPdfRendererIos
-  util/           UuidGeneratorIos, TimeProviderIos
+  util/           TimeProviderIos
 ```
 
 ### androidApp — Thin application shell
@@ -135,7 +135,9 @@ Plugin declarations only (all `apply false`):
 - `compose.runtime`, `compose.foundation`, `compose.material3`, `compose.ui` — Compose Multiplatform UI (material3 used for structural components only — Scaffold, FAB, Card, etc. — not for MaterialTheme color scheme)
 - `kotlinx-coroutines-core:1.9.0` — Coroutines for async operations
 - `wire-runtime:5.1.0` — Protobuf runtime for stroke serialization
-- ~~`uuid:0.8.4` (com.benasher44)~~ **Removed** — see Section 11 for UUID resolution
+- `kotlin.uuid.Uuid` (Kotlin stdlib, experimental) — UUID generation via `Uuid.random().toString()`. Requires `@OptIn(ExperimentalUuidApi::class)`. No external dependency.
+- `io.insert-koin:koin-core` — Dependency injection (KMP-native)
+- `org.jetbrains.androidx.navigation:navigation-compose` 2.8+ — Navigation (KMP-compatible)
 
 **androidMain:**
 - `androidx.ink:ink-authoring:1.0.0-alpha01` — `InProgressStrokesView` for front-buffered live stroke capture
@@ -146,6 +148,8 @@ Plugin declarations only (all `apply false`):
 - `androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7` — ViewModel Compose integration
 - `app.cash.sqldelight:android-driver:2.0.2` — SQLite driver for Android
 - `kotlinx-coroutines-android:1.9.0` — Android dispatchers
+- `io.insert-koin:koin-android` — Koin Android integration
+- `io.insert-koin:koin-androidx-compose` — Koin Compose ViewModel integration (`koinViewModel()`)
 
 **androidApp/build.gradle.kts:**
 - Depends on `:shared`
@@ -448,7 +452,7 @@ class StrokeInputHandler(
 
 **androidx.ink → shared model** (`toSharedStroke`):
 - Iterates `inputs` (StrokeInputBatch), extracting x, y, pressure, tilt, orientation, timestamp per point.
-- Generates a new `StrokeId` via UUID generation (see Section 11 for which UUID approach to use).
+- Generates a new `StrokeId` via `Uuid.random().toString()` (Kotlin stdlib).
 - Computes `BoundingBox` from the points.
 - Gets toolType/color/width from the current `ActiveToolState`.
 
@@ -862,13 +866,9 @@ class StrokeSpatialIndex(private val cellSize: Float = 256f) {
 
 These are the only `expect/actual` declarations. Everything else is either fully shared or only exists in one platform source set (like rendering classes).
 
-**UUID generation — resolved:** The original design had both `com.benasher44:uuid` as a dependency AND `expect fun generateUuid()` as a platform abstraction. These are redundant.
+**UUID generation — resolved:** Use `kotlin.uuid.Uuid` from the Kotlin stdlib (available since Kotlin 2.0, this project uses 2.1.10). Call `Uuid.random().toString()` directly in `commonMain`. Requires `@OptIn(ExperimentalUuidApi::class)`. No external dependency, no expect/actual needed.
 
-**Option A (recommended): Use `kotlin.uuid.Uuid` (stdlib).** Kotlin 2.0+ includes `kotlin.uuid.Uuid` as an experimental stdlib API. Since this project uses Kotlin 2.1.10, use `Uuid.random().toString()` directly in `commonMain`. No external dependency, no expect/actual needed. Requires `@OptIn(ExperimentalUuidApi::class)`.
-
-**Option B: Keep `com.benasher44:uuid`.** The library is already KMP-multiplatform — it works in `commonMain` directly. No expect/actual needed. Use `uuid4().toString()`. More stable API (not experimental), but adds an external dependency for something the stdlib now provides.
-
-Either way, remove the `expect fun generateUuid()` / `actual fun` pattern and the corresponding `UuidGeneratorAndroid` / `UuidGeneratorIos` files.
+The original design had both `com.benasher44:uuid` and `expect fun generateUuid()` — both are removed. Delete the `expect fun generateUuid()` / `actual fun` pattern and the corresponding `UuidGeneratorAndroid` / `UuidGeneratorIos` files.
 
 **`CanvasExportRenderer`** is intentionally NOT an expect/actual — it's a platform-only class (see Section 9). Each platform will have its own export renderer with a platform-appropriate API.
 
@@ -883,7 +883,7 @@ Either way, remove the `expect fun generateUuid()` / `actual fun` pattern and th
 - Wire Protobuf schema (stroke.proto)
 - KMP project structure with all source sets
 - Build system with all plugins configured
-- `UuidGeneratorAndroid` and `TimeProviderAndroid` (actual implementations)
+- `TimeProviderAndroid` (actual implementation)
 - `DatabaseDriverFactoryAndroid` (actual, but body is stub)
 - Android app shell (MainActivity, DraftyApplication, DraftyApp composable)
 - Android resources (strings, themes)
@@ -953,6 +953,9 @@ The project has a complete architecture design (documented in `architecture.md` 
 | Wire Protobuf (not FlatBuffers) | Mature tooling, good KMP support, schema evolution. FlatBuffers would be faster but less mature for KMP. | Switch to FlatBuffers if deserialization profiled as bottleneck |
 | SQLDelight (not Room) | KMP-first design, more battle-tested for multiplatform | Room 2.7+ is viable alternative |
 | v1 cloud sync = manual export/import via share sheet | Zero infrastructure. User saves `.drafty` files to Drive/email/files app. | Supabase for real sync in v2+ |
+| UUID via `kotlin.uuid.Uuid` (stdlib) | Zero dependencies, KMP-native, available since Kotlin 2.0. Experimental API but stable surface. | — |
+| DI via Koin | Lightweight KMP-native DI, canvas-scoped ViewModel lifecycle, Compose integration | Manual DI if Koin adds unwanted complexity |
+| Navigation via Compose Navigation | Official Google KMP library, deep links for `.drafty` imports, back-stack management | Voyager if Compose Navigation proves too heavy |
 
 ### Stroke data size estimate
 
@@ -960,32 +963,83 @@ A single `InputPoint` serialized as `StrokePointProto` contains 4 floats (x, y, 
 
 ---
 
-## 15. Dependency Injection
+## 15. Dependency Injection — Koin
 
-`DraftyApplication.kt` is described as "placeholder for DI init" but no DI strategy is defined. The ViewModel requires `CanvasRepository` and `StrokeRepository` as constructor parameters, and those require a `DatabaseDriverFactory`.
+Koin is the DI framework for Drafty. It's lightweight, KMP-native (no annotation processing), and provides Compose ViewModel integration out of the box.
 
-**Option A (recommended): Koin.** Lightweight, KMP-native DI framework. Define a `commonMain` module with repository interfaces and a platform module with actual implementations. Minimal boilerplate, good Compose integration via `koinViewModel()`.
+**Dependencies:**
+- `io.insert-koin:koin-core` in `commonMain` — core DI container
+- `io.insert-koin:koin-android` in `androidMain` — Android context integration
+- `io.insert-koin:koin-androidx-compose` in `androidMain` — `koinViewModel()` for Compose
 
-**Option B: Manual DI.** Create a simple `AppModule` object in `commonMain` that holds lazy singletons. Platform code initializes it with the `DatabaseDriverFactory`. No external dependency but becomes unwieldy as the dependency graph grows.
+**Module structure:**
 
-Either way, the wiring pattern is:
-1. `DraftyApplication.onCreate()` creates the `DatabaseDriverFactory` and initializes DI.
-2. `DraftyApp` composable retrieves `LibraryViewModel` and `CanvasViewModel` from DI.
-3. ViewModels receive repository implementations via constructor injection (never `lateinit var`).
+```kotlin
+// commonMain — shared module definitions
+val sharedModule = module {
+    single<FolderRepository> { SqlDelightFolderRepository(get()) }
+    single<CanvasRepository> { SqlDelightCanvasRepository(get()) }
+    single<StrokeRepository> { SqlDelightStrokeRepository(get()) }
+
+    factory { LibraryViewModel(get(), get()) }
+
+    // CanvasViewModel is scoped per canvas screen, not a singleton
+    factory { params ->
+        CanvasViewModel(get(), get(), AutosaveManager(get(), get(), Dispatchers.IO), params.get())
+    }
+}
+
+// androidMain — platform module
+val androidModule = module {
+    single { DatabaseDriverFactory(androidContext()) }
+}
+```
+
+**Wiring:**
+1. `DraftyApplication.onCreate()` calls `startKoin { androidContext(this@DraftyApplication); modules(sharedModule, androidModule) }`.
+2. `DraftyApp` composable retrieves ViewModels via `koinViewModel()` / `koinNavGraphViewModel()`.
+3. All dependencies use constructor injection — no `lateinit var`.
 
 ---
 
-## 16. Navigation
+## 16. Navigation — Compose Navigation (KMP)
 
-The Library-to-Canvas navigation and back-stack management need a concrete implementation.
+Compose Navigation (`navigation-compose` 2.8+) handles Library-to-Canvas routing, back-stack management, and deep links for `.drafty` file imports.
 
-**Option A (recommended): Compose Navigation (KMP).** `navigation-compose` 2.8+ supports KMP. Define a nav graph with two destinations: `Library` and `Canvas(canvasId: String)`. Handles back-stack, deep links (for `.drafty` file open intents), and argument passing. Most standard approach for Compose-based apps.
+**Dependency:** `org.jetbrains.androidx.navigation:navigation-compose` in `commonMain`.
 
-**Option B: Voyager.** KMP-first navigation library, simpler API than Compose Navigation, good ViewModel integration. Less ecosystem support than the official library.
+**Nav graph:**
 
-**Option C: Manual navigation.** A simple `sealed class Screen` with a `MutableStateFlow<Screen>` in `DraftyApp`. Sufficient for two screens, but doesn't handle deep links or complex back-stack scenarios.
+```kotlin
+// commonMain — DraftyApp.kt
+@Composable
+fun DraftyApp() {
+    val navController = rememberNavController()
+    DraftyTheme {
+        NavHost(navController, startDestination = "library") {
+            composable("library") {
+                LibraryScreen(
+                    onCanvasClick = { id -> navController.navigate("canvas/$id") }
+                )
+            }
+            composable(
+                route = "canvas/{canvasId}",
+                arguments = listOf(navArgument("canvasId") { type = NavType.StringType }),
+            ) { backStackEntry ->
+                val canvasId = backStackEntry.arguments?.getString("canvasId") ?: return@composable
+                CanvasScreen(
+                    canvasId = canvasId,
+                    onBack = { navController.popBackStack() }
+                )
+            }
+        }
+    }
+}
+```
 
-**Deep link requirement:** When the user opens a `.drafty` file via Android's share sheet or file manager, the app should navigate directly to the imported canvas. This requires intent handling in `MainActivity` and a nav deep link definition.
+**Deep link for `.drafty` file import:** `MainActivity` handles `ACTION_VIEW` / `ACTION_SEND` intents for `.drafty` files, imports via `DraftyImporter`, then navigates to `canvas/{importedCanvasId}` via the nav controller. Requires intent-filter declarations in `AndroidManifest.xml`.
+
+**ViewModel scoping:** `CanvasViewModel` is scoped to the `canvas/{canvasId}` nav destination via `koinNavGraphViewModel()`. Created on navigate-to, destroyed on navigate-away (back or process death). This ensures the `AutosaveManager` flushes on canvas close.
 
 ---
 

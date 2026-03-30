@@ -38,12 +38,12 @@ This document records all issues found during a thorough review of `research.md`
 ### 6. No DI strategy
 **Issue:** No discussion of how dependencies get wired. `CanvasViewModel` takes repositories as constructor params, but nothing explains how those instances are created or provided.
 **Why it matters:** This is the first implementation blocker. You can't instantiate ViewModels without solving DI.
-**Fix:** Added Section 15 covering Koin (recommended) vs manual DI, with the wiring pattern.
+**Fix:** Added Section 15. Resolved to use Koin — lightweight, KMP-native, handles canvas-scoped ViewModel lifecycle without reimplementing it manually. Dependencies: `koin-core` (commonMain), `koin-android` + `koin-androidx-compose` (androidMain).
 
 ### 7. No navigation architecture
 **Issue:** `DraftyApp.kt` was described as "navigation host (stub)" with no discussion of how navigation works.
 **Why it matters:** Library-to-canvas transitions, back-stack, and deep links for `.drafty` file imports all depend on navigation infrastructure.
-**Fix:** Added Section 16 evaluating Compose Navigation (recommended), Voyager, and manual navigation.
+**Fix:** Added Section 16. Resolved to use Compose Navigation (`navigation-compose` 2.8+, KMP-compatible). Chosen for deep link support (`.drafty` file imports via intent), official Google backing, and nav-destination-scoped ViewModels via `koinNavGraphViewModel()`.
 
 ### 8. No canvas coordinate system
 **Issue:** The document never defined what coordinate system strokes use, what units template spacing is in, how touch coordinates map to canvas coordinates, or whether the canvas is infinite or fixed-size.
@@ -135,7 +135,7 @@ This document records all issues found during a thorough review of `research.md`
 ### 23. Dual UUID solutions
 **Issue:** Both `com.benasher44:uuid` (external dependency) and `expect fun generateUuid()` (platform abstraction) existed for the same purpose. `StrokeAdapter` called `uuid4()` (benasher44) while the platform table listed `java.util.UUID`.
 **Why it matters:** Two UUID mechanisms create confusion about which to use and add unnecessary dependencies.
-**Fix:** Removed `com.benasher44:uuid` from dependencies. Presented two options in Section 11: Kotlin stdlib `kotlin.uuid.Uuid` (recommended, no dependency) or keeping benasher44 (stable but external). Either way, the expect/actual pattern is removed.
+**Fix:** Removed `com.benasher44:uuid` from dependencies. Resolved to use `kotlin.uuid.Uuid` from the Kotlin stdlib — zero dependencies, KMP-native, available since Kotlin 2.0. The `expect fun generateUuid()` / `actual fun` pattern and `UuidGeneratorAndroid` / `UuidGeneratorIos` files are removed.
 
 ---
 
