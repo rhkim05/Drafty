@@ -39,7 +39,7 @@ Drafty/
 │       │   │   │   ├── library/  Library screen: LibraryScreen (folder grid, canvas thumbnails),
 │       │   │   │   │             LibraryViewModel
 │       │   │   │   ├── canvas/   Canvas screen: CanvasScreen (toolbar, drawing area layout)
-│       │   │   │   └── theme/    DraftyTheme — Material3 theme configuration
+│       │   │   │   └── theme/    DraftyTheme — custom CompositionLocal theme (dark neon)
 │       │   │   │
 │       │   │   └── util/         Cross-platform utilities: expect generateUuid(), expect
 │       │   │                     currentTimeMillis()
@@ -113,7 +113,7 @@ Drafty/
         │   └── DraftyApp.kt          Root @Composable — navigation host for Library ↔ Canvas
         └── res/values/
             ├── strings.xml        App name and UI strings
-            ├── themes.xml         Material theme for the app shell
+            ├── themes.xml         Dark theme for the app shell (splash/system bars)
             └── colors.xml         Color resources
 ```
 

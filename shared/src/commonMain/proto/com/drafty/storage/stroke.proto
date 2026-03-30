@@ -17,6 +17,7 @@ message StrokePointListProto {
     float bounds_min_y = 3;
     float bounds_max_x = 4;
     float bounds_max_y = 5;
+    sint64 base_timestamp_ms = 6;
 }
 
 message StrokeExportProto {

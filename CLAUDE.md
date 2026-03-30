@@ -71,6 +71,19 @@ Two Gradle modules (`:shared` and `:androidApp`). Almost all code lives in `:sha
 - **`shared/iosMain`** — iOS stubs for future port
 - **`androidApp`** — Thin shell: `MainActivity` → `DraftyApp` composable → shared screens
 
+### Android SDK & Toolchain
+
+- minSdk 29, targetSdk 35, compileSdk 35
+- JVM target: 17
+- Gradle 8.11, AGP 8.7.3
+
+### Key Dependencies
+
+- Kotlin 2.1.10, Jetbrains Compose 1.7.3
+- SQLDelight 2.0.2, Wire Protobuf 5.1.0
+- androidx.ink 1.0.0-alpha01 (authoring, rendering, strokes, brush, geometry)
+- kotlinx-coroutines 1.9.0
+
 ### Key Patterns
 
 **MVVM + Command Pattern:** `CanvasViewModel` exposes `StateFlow<CanvasState>`. All canvas mutations go through `DrawCommand` implementations (`AddStrokeCommand`, `EraseStrokeCommand`, `PartialEraseCommand`, `LassoMoveCommand`, `LassoDeleteCommand`, `LassoRecolorCommand`) managed by `UndoRedoManager`.
@@ -81,8 +94,8 @@ Two Gradle modules (`:shared` and `:androidApp`). Almost all code lives in `:sha
 
 ### Persistence
 
-- **SQLDelight** generates DAOs from `shared/src/commonMain/sqldelight/com/drafty/db/Drafty.sq` (tables: `folder`, `canvas`, `stroke`)
-- **Wire Protobuf** generates Kotlin classes from `shared/src/commonMain/proto/stroke.proto` for compact stroke point serialization
+- **SQLDelight** generates `DraftyDatabase` (package `com.drafty.db`) from `shared/src/commonMain/sqldelight/com/drafty/db/Drafty.sq` (tables: `folder`, `canvas`, `stroke`)
+- **Wire Protobuf** generates Kotlin classes from `shared/src/commonMain/proto/com/drafty/storage/stroke.proto` for compact stroke point serialization
 - Repository interfaces in `commonMain/persistence/`, implementations in `androidMain/persistence/`
 - `AutosaveManager` debounces writes at 300ms
 

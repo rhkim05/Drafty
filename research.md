@@ -130,7 +130,7 @@ Plugin declarations only (all `apply false`):
 ### shared/build.gradle.kts — Dependencies
 
 **commonMain:**
-- `compose.runtime`, `compose.foundation`, `compose.material3`, `compose.ui` — Compose Multiplatform UI
+- `compose.runtime`, `compose.foundation`, `compose.material3`, `compose.ui` — Compose Multiplatform UI (material3 used for structural components only — Scaffold, FAB, Card, etc. — not for MaterialTheme color scheme)
 - `kotlinx-coroutines-core:1.9.0` — Coroutines for async operations
 - `wire-runtime:5.1.0` — Protobuf runtime for stroke serialization
 - `uuid:0.8.4` (com.benasher44) — Cross-platform UUID generation
@@ -535,11 +535,11 @@ interface DrawCommand {
 | **AddStrokeCommand** | Appends stroke to list, inserts into spatial index | Removes stroke from list and index | `onStrokeAdded` / `onStrokeDeleted` |
 | **EraseStrokeCommand** | Removes stroke from list and index | Re-adds stroke to list and index | `onStrokeDeleted` / `onStrokeAdded` |
 | **PartialEraseCommand** | Removes original, adds split fragments | Removes fragments, restores original | Deletes original + adds fragments / reverse |
-| **LassoMoveCommand** | Translates selected strokes by (deltaX, deltaY), recomputes bounding boxes | Translates by (-deltaX, -deltaY) | — |
-| **LassoRecolorCommand** | Sets new color on selected strokes | Restores previous colors from saved map | — |
+| **LassoMoveCommand** | Translates selected strokes by (deltaX, deltaY), recomputes bounding boxes, updates spatial index | Translates by (-deltaX, -deltaY), updates spatial index | `onStrokeModified` per moved stroke |
+| **LassoRecolorCommand** | Sets new color on selected strokes | Restores previous colors from saved map | `onStrokeModified` per recolored stroke |
 | **LassoDeleteCommand** | Removes selected strokes from list and index | Re-adds all removed strokes | `onStrokeDeleted` / `onStrokeAdded` |
 
-All commands that modify which strokes exist also update the spatial index and trigger autosave. Lasso move/recolor don't delete or create strokes, so they update the autosave differently (modified strokes need re-serialization).
+All commands that modify strokes update the spatial index and trigger autosave. Lasso move/recolor call `onStrokeModified` per affected stroke, which internally handles the delete + re-insert in the autosave pipeline.
 
 ### UndoRedoManager
 
@@ -619,6 +619,7 @@ message StrokePointProto {
 message StrokePointListProto {
     repeated StrokePointProto points = 1;
     float bounds_min_x = 2, bounds_min_y = 3, bounds_max_x = 4, bounds_max_y = 5;
+    sint64 base_timestamp_ms = 6;  // absolute timestamp of first point, for restoring deltas
 }
 
 message StrokeExportProto {
@@ -641,8 +642,8 @@ object StrokeSerializer {
 }
 ```
 
-- `serialize`: Converts `List<InputPoint>` → `StrokePointListProto` → `ByteArray`. Timestamps are stored as delta from the first point (compact `sint64` encoding).
-- `deserialize`: Full deserialization — returns points + bounds.
+- `serialize`: Converts `List<InputPoint>` → `StrokePointListProto` → `ByteArray`. Timestamps are stored as deltas from the first point (compact `sint64` encoding). The absolute timestamp of the first point is stored in `base_timestamp_ms` for reconstruction.
+- `deserialize`: Full deserialization — reconstructs absolute timestamps by adding `base_timestamp_ms` back to each delta. Returns points + bounds.
 - `deserializeBounds`: Partial deserialization — reads only the bounding box fields without allocating `InputPoint` objects. Useful if bounds are needed without loading all point data.
 
 ### AutosaveManager
@@ -656,7 +657,8 @@ class AutosaveManager(
     private val debounceMs = 300L
 
     fun onStrokeAdded(stroke: Stroke)
-    fun onStrokeDeleted(strokeId: String)
+    fun onStrokeDeleted(strokeId: StrokeId)
+    fun onStrokeModified(stroke: Stroke)  // for lasso move/recolor: delete old + insert updated
     suspend fun flush()  // force-flush on canvas exit / app background
 }
 ```
@@ -958,6 +960,6 @@ The existing `FolderColor` enum values map to neon accent colors that pop agains
 | Pink | `#E040A0` | Matches `accentPink` |
 | Gray | `#6B7280` | Neutral, slightly lighter than `textSecondary` |
 
-### Material 3 Components on Dark Theme
+### Structural Components from material3 Library
 
-Even without `MaterialTheme` color scheme, Compose Multiplatform's `material3` library is still used for structural components (`Scaffold`, `FloatingActionButton`, `AlertDialog`, `Card`, etc.). These components will be individually styled using `DraftyTheme.colors` via explicit `colors` parameters (e.g., `CardDefaults.cardColors(containerColor = DraftyTheme.colors.surface)`). This avoids depending on Material's built-in color propagation while still leveraging the layout/interaction patterns.
+The `compose.material3` library is still a dependency for its structural components (`Scaffold`, `FloatingActionButton`, `AlertDialog`, `Card`, etc.), but `MaterialTheme` is **never applied**. Components are individually styled using `DraftyTheme.colors` via explicit `colors` parameters (e.g., `CardDefaults.cardColors(containerColor = DraftyTheme.colors.surface)`). This avoids Material's built-in color propagation while still leveraging the layout/interaction patterns.

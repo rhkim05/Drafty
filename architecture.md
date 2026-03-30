@@ -235,7 +235,7 @@ class CommittedStrokeView(context: Context) : View(context) {
             val stroke = state.strokeById(id) ?: continue
             if (stroke.toolType != ToolType.Highlighter) continue
             val renderable = strokeCache.getOrCreate(stroke)
-            renderer.draw(canvas, renderable.inkStroke, renderable.paint)
+            renderer.draw(canvas, renderable.inkStroke)
         }
 
         // Layer 3: Ink strokes
@@ -243,7 +243,7 @@ class CommittedStrokeView(context: Context) : View(context) {
             val stroke = state.strokeById(id) ?: continue
             if (stroke.toolType != ToolType.Pen) continue
             val renderable = strokeCache.getOrCreate(stroke)
-            renderer.draw(canvas, renderable.inkStroke, renderable.paint)
+            renderer.draw(canvas, renderable.inkStroke)
         }
 
         canvas.restore()
@@ -901,6 +901,8 @@ message StrokePointListProto {
     float bounds_min_y = 3;
     float bounds_max_x = 4;
     float bounds_max_y = 5;
+    // Absolute timestamp of first point — used to restore deltas to absolute values.
+    sint64 base_timestamp_ms = 6;
 }
 ```
 
@@ -928,18 +930,20 @@ object StrokeSerializer {
             points = protos,
             bounds_min_x = bounds.minX, bounds_min_y = bounds.minY,
             bounds_max_x = bounds.maxX, bounds_max_y = bounds.maxY,
+            base_timestamp_ms = baseTimestamp,
         ).encode()
     }
 
     fun deserialize(data: ByteArray): DeserializedStroke {
         val proto = StrokePointListProto.ADAPTER.decode(data)
+        val baseTimestamp = proto.base_timestamp_ms
         val points = proto.points.map { pt ->
             InputPoint(
                 x = pt.x, y = pt.y,
                 pressure = pt.pressure,
                 tiltRadians = pt.tilt_radians,
                 orientationRadians = pt.orientation_radians,
-                timestampMs = pt.timestamp_ms,
+                timestampMs = pt.timestamp_ms + baseTimestamp,
             )
         }
         val bounds = BoundingBox(
@@ -1168,9 +1172,10 @@ class LassoMoveCommand(
         translateStrokes(state, -deltaX, -deltaY)
     }
     private fun translateStrokes(state: MutableStateFlow<CanvasState>, dx: Float, dy: Float) {
+        val idsSet = strokeIds.toSet()
         state.update { s ->
             s.copy(strokes = s.strokes.map { stroke ->
-                if (stroke.id in strokeIds) {
+                if (stroke.id in idsSet) {
                     val translated = stroke.points.map { it.copy(x = it.x + dx, y = it.y + dy) }
                     stroke.copy(
                         points = translated,
@@ -1178,6 +1183,13 @@ class LassoMoveCommand(
                     )
                 } else stroke
             })
+        }
+        // Update spatial index: remove old positions, re-insert with new bounding boxes
+        for (id in strokeIds) {
+            state.value.spatialIndex.remove(id)
+            val updated = state.value.strokeById(id) ?: continue
+            state.value.spatialIndex.insert(updated)
+            autosave.onStrokeModified(updated)
         }
     }
 }
@@ -1194,6 +1206,10 @@ class LassoRecolorCommand(
                 if (stroke.id in strokeIds) stroke.copy(colorArgb = newColor) else stroke
             })
         }
+        for (id in strokeIds) {
+            val updated = state.value.strokeById(id) ?: continue
+            autosave.onStrokeModified(updated)
+        }
     }
     override fun undo(state: MutableStateFlow<CanvasState>) {
         state.update { s ->
@@ -1201,6 +1217,10 @@ class LassoRecolorCommand(
                 val original = previousColors[stroke.id]
                 if (original != null) stroke.copy(colorArgb = original) else stroke
             })
+        }
+        for ((id, _) in previousColors) {
+            val restored = state.value.strokeById(id) ?: continue
+            autosave.onStrokeModified(restored)
         }
     }
 }
@@ -1213,7 +1233,7 @@ class LassoDeleteCommand(
         val ids = strokes.map { it.id }.toSet()
         state.update { s -> s.copy(strokes = s.strokes.filter { it.id !in ids }) }
         ids.forEach { state.value.spatialIndex.remove(it) }
-        ids.forEach { autosave.onStrokeDeleted(it.value) }
+        ids.forEach { autosave.onStrokeDeleted(it) }
     }
     override fun undo(state: MutableStateFlow<CanvasState>) {
         state.update { s -> s.copy(strokes = s.strokes + strokes) }
@@ -1278,7 +1298,7 @@ class AutosaveManager(
     private val dispatcher: CoroutineDispatcher,
 ) {
     private val pendingInserts = mutableListOf<Stroke>()
-    private val pendingDeletes = mutableListOf<String>()
+    private val pendingDeletes = mutableListOf<StrokeId>()
     private var flushJob: Job? = null
     private val debounceMs = 300L
 
@@ -1287,10 +1307,25 @@ class AutosaveManager(
         scheduleFlush()
     }
 
-    fun onStrokeDeleted(strokeId: String) {
+    fun onStrokeDeleted(strokeId: StrokeId) {
         synchronized(this) {
-            val removedFromPending = pendingInserts.removeAll { it.id.value == strokeId }
+            val removedFromPending = pendingInserts.removeAll { it.id == strokeId }
             if (!removedFromPending) pendingDeletes.add(strokeId)
+        }
+        scheduleFlush()
+    }
+
+    fun onStrokeModified(stroke: Stroke) {
+        synchronized(this) {
+            // If stroke is still in pending inserts, just replace it there
+            val idx = pendingInserts.indexOfFirst { it.id == stroke.id }
+            if (idx >= 0) {
+                pendingInserts[idx] = stroke
+            } else {
+                // Delete old version + insert updated version
+                pendingDeletes.add(stroke.id)
+                pendingInserts.add(stroke)
+            }
         }
         scheduleFlush()
     }
@@ -1306,7 +1341,7 @@ class AutosaveManager(
     /** Force-flush. Called on canvas exit and app background. */
     suspend fun flush() {
         val inserts: List<Stroke>
-        val deletes: List<String>
+        val deletes: List<StrokeId>
         synchronized(this) {
             inserts = pendingInserts.toList()
             deletes = pendingDeletes.toList()
@@ -1316,8 +1351,8 @@ class AutosaveManager(
         if (inserts.isEmpty() && deletes.isEmpty()) return
 
         // Single transaction for atomicity and single fsync
+        deletes.forEach { strokeRepository.delete(it.value) }
         inserts.forEach { strokeRepository.insert(it) }
-        deletes.forEach { strokeRepository.delete(it) }
     }
 }
 ```

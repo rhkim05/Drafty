@@ -10,7 +10,7 @@ The rendering layer is the most critical decision. It determines ink latency, th
 
 | Option | Latency | Maturity | Dev Effort | Notes |
 |--------|---------|----------|------------|-------|
-| **A. androidx.ink** | ~4ms (Samsung Tab S8) | Alpha (v1.1.0-alpha01, Oct 2024) | Low–Medium | Purpose-built by Google for stylus apps |
+| **A. androidx.ink** | ~4ms (Samsung Tab S8) | Alpha (v1.0.0-alpha01, Oct 2024) | Low–Medium | Purpose-built by Google for stylus apps |
 | **B. Canvas + androidx.graphics** | ~16–32ms | Stable | Medium | Familiar Canvas API with front-buffered layer |
 | **C. Custom OpenGL/Vulkan** | <4ms (theoretical) | N/A (custom) | Very High | Maximum control, requires graphics expertise |
 
