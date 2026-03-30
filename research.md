@@ -1,5 +1,7 @@
 # Research — Drafty Codebase
 
+> **Revision note:** This document has been edited to fix factual errors, fill gaps, and resolve contradictions identified in [`feedback.md`](feedback.md).
+
 Deep reading of the entire Drafty project. This document captures how every layer works, what each file does, design decisions and their rationale, and the current implementation state.
 
 ---
@@ -133,7 +135,7 @@ Plugin declarations only (all `apply false`):
 - `compose.runtime`, `compose.foundation`, `compose.material3`, `compose.ui` — Compose Multiplatform UI (material3 used for structural components only — Scaffold, FAB, Card, etc. — not for MaterialTheme color scheme)
 - `kotlinx-coroutines-core:1.9.0` — Coroutines for async operations
 - `wire-runtime:5.1.0` — Protobuf runtime for stroke serialization
-- `uuid:0.8.4` (com.benasher44) — Cross-platform UUID generation
+- ~~`uuid:0.8.4` (com.benasher44)~~ **Removed** — see Section 11 for UUID resolution
 
 **androidMain:**
 - `androidx.ink:ink-authoring:1.0.0-alpha01` — `InProgressStrokesView` for front-buffered live stroke capture
@@ -173,10 +175,10 @@ enum class FolderColor { Red, Orange, Yellow, Green, Blue, Purple, Pink, Gray }
 ### StrokeId
 
 ```kotlin
-@JvmInline value class StrokeId(val value: String)
+value class StrokeId(val value: String)
 ```
 
-Zero-cost type wrapper for type safety. Prevents accidentally passing a canvas ID where a stroke ID is expected.
+Zero-cost type wrapper for type safety. Prevents accidentally passing a canvas ID where a stroke ID is expected. Note: `@JvmInline` is not needed in `commonMain` — the Kotlin compiler handles JVM inlining automatically for `value class` declarations.
 
 ### InputPoint
 
@@ -220,7 +222,14 @@ data class Stroke(
 )
 ```
 
-**`colorArgb: Long`** — Avoids sign-extension when high-alpha ARGB values cross the JVM/KMP boundary (e.g., `0xFFFF0000` overflows a signed `Int` to negative). `Long` sidesteps this. Note: `ActiveToolState.colorArgb` is `Int`, and `CanvasViewModel.setColor()` does a `toInt()` conversion — this Long/Int inconsistency should be unified in implementation. Compose Multiplatform's `Color` inline class (backed by `ULong`) is the idiomatic alternative but adds conversion overhead at the rendering boundary.
+**`colorArgb: Long`** — Avoids sign-extension when high-alpha ARGB values cross the JVM/KMP boundary (e.g., `0xFFFF0000` overflows a signed `Int` to negative). `Long` sidesteps this. Compose Multiplatform's `Color` inline class (backed by `ULong`) is the idiomatic alternative but adds conversion overhead at the rendering boundary.
+
+**Color type unification:** All color values must use `Long` consistently across the codebase:
+- `Stroke.colorArgb: Long` — already correct
+- `StrokeMetadata.color: Long` — already correct
+- SQL `stroke.color INTEGER` — maps to Kotlin `Long` via SQLDelight, already correct
+- `ActiveToolState.colorArgb` — **must be changed from `Int` to `Long`** during implementation
+- `CanvasViewModel.setColor()` — remove the `toInt()` conversion once `ActiveToolState` is unified
 
 ### Canvas
 
@@ -291,7 +300,7 @@ ACTION_DOWN / ACTION_MOVE
 InProgressStrokesView (FRONT BUFFER)
     - Draws partial stroke directly to display
     - Motion prediction adds ~1 frame of look-ahead
-    - Sub-frame latency (~4ms on Samsung Tab S8)
+    - Sub-frame latency (Google claims sub-8ms on supported hardware)
     |
 ACTION_UP (stroke finished)
     |
@@ -299,10 +308,10 @@ ACTION_UP (stroke finished)
 Stroke Commit Flow:
     1. InProgressStrokesView emits finished androidx.ink.strokes.Stroke
     2. StrokeAdapter converts to shared Stroke model
-    3. AddStrokeCommand pushed to UndoRedoManager
-    4. CanvasState updated (strokes list + spatial index)
-    5. CommittedStrokeView.invalidate() → triggers onDraw
-    6. Finished stroke removed from InProgressStrokesView
+    3. viewModel.commitStroke() → pushes AddStrokeCommand to UndoRedoManager
+       → command.execute() updates CanvasState (strokes list + spatial index)
+    4. CommittedStrokeView.invalidate() → triggers onDraw
+    5. Finished stroke removed from InProgressStrokesView
     |
     v
 CommittedStrokeView (BACK BUFFER)
@@ -335,32 +344,33 @@ fun DrawingCanvas(viewModel: CanvasViewModel, modifier: Modifier) {
 
 The `update` block fires on every recomposition (i.e., every state change), rebinding the latest `CanvasState` to the committed view.
 
-**Lifecycle note:** The current code uses `collectAsState()` to observe the ViewModel's StateFlow. On Android, `collectAsStateWithLifecycle()` is the recommended alternative — it stops collection when the app is backgrounded, avoiding unnecessary work and potential resource leakage. Since `DrawingCanvas` is in `androidMain`, switching is straightforward.
+**Lifecycle requirement:** `DrawingCanvas` must use `collectAsStateWithLifecycle()` (not `collectAsState()`) to observe the ViewModel's StateFlow. Without this, flow collection continues when the app is backgrounded, causing unnecessary state updates and potential inconsistency when the Compose tree isn't active. Since `DrawingCanvas` is in `androidMain`, the AndroidX lifecycle dependency is already available.
 
 ### Performance Optimizations
 
 1. **Spatial index culling** — `StrokeSpatialIndex.query(visibleRegion)` returns only strokes overlapping the viewport. O(visible) not O(all).
 2. **RenderableStrokeCache** — Avoids converting shared `Stroke` → `androidx.ink.strokes.Stroke` every frame. Cache keyed by `StrokeId`, entries created on first render. **Risk:** Currently an unbounded `HashMap` — heavy canvases (thousands of strokes) could cause OOM. Should add viewport-based eviction or an LRU cap before production.
 3. **Template culling** — `TemplateRenderer` only draws lines/grid/dots within the visible viewport region.
-4. **PDF caching** — `PdfPageRenderer` rasterizes to a cached `Bitmap`, re-renders only when zoom changes by >2x. **Limitation:** Single-bitmap approach — rasterizing at high zoom on high-res tablets (e.g., Galaxy Tab S9 Ultra at 400%) will allocate a very large bitmap. Tiled rendering (à la SubsamplingScaleImageView) is the standard approach for large documents but is a significant engineering effort. Acceptable for v1 with a reasonable max zoom cap.
+4. **PDF caching** — `PdfPageRenderer` rasterizes to a cached `Bitmap`, re-renders only when zoom changes by >2x. **Limitation:** Single-bitmap approach — at 400% zoom on a 2048x2732 canvas, the rasterized bitmap would be ~8192x10928 pixels = ~340MB ARGB_8888, which will OOM. **v1 mitigation:** Cap max zoom at 200% for PDF-backed canvases, limiting bitmaps to ~85MB. Tiled rendering for v2.
 5. **Front-buffered rendering** — `InProgressStrokesView` bypasses double-buffered pipeline for the live stroke, achieving sub-frame latency.
 
 ### BrushProvider
 
-Maps shared `ActiveToolState` → `androidx.ink.brush.Brush`:
+Maps shared `ActiveToolState` → `androidx.ink.brush.Brush`. Only used for Pen and Highlighter — the eraser does not draw strokes.
 
 | ToolType | BrushFamily | Behavior |
 |----------|-------------|----------|
 | Pen | `StockBrushes.pressurePenLatest` | Pressure-sensitive, variable width |
 | Highlighter | `StockBrushes.highlighterLatest` | Semi-transparent, pressure affects opacity |
-| Eraser | `StockBrushes.pressurePenLatest` + `Color.TRANSPARENT` | Transparent stroke (visual only) |
+
+The eraser works entirely through `EraserHandler` (see Section 6) — it hit-tests and removes/splits existing strokes via commands. It does not draw anything through `InProgressStrokesView`. Visual feedback during erasing: render a circular cursor overlay at the touch point (radius = eraser width) and redraw the back buffer immediately as strokes are removed/split, so erased portions disappear in real-time.
 
 Pressure and velocity curves are handled internally by the `StockBrushes` families. Custom `BrushFamily` with explicit `BrushBehavior` nodes is the escape hatch for fine-tuning pen feel.
 
 ### TemplateRenderer
 
-Interface with per-template implementations:
-- **LinedTemplateRenderer** — Horizontal lines at 32px spacing, `#D0D0D0` color, 1px stroke. Only draws lines within `visibleRegion.minY..maxY`.
+Interface with per-template implementations. All spacing values are in canvas-space units (see Section 5a), not screen pixels — the zoom/pan transform applied by `CommittedStrokeView` handles the screen mapping.
+- **LinedTemplateRenderer** — Horizontal lines at 32-unit spacing, `#D0D0D0` color, 1-unit stroke. Only draws lines within `visibleRegion.minY..maxY`.
 - **GridTemplateRenderer** — Square grid pattern (similar approach).
 - **DottedTemplateRenderer** — Dot grid.
 - **BlankTemplateRenderer** — No-op.
@@ -371,6 +381,17 @@ Implements `TemplateRenderer`. Uses `android.graphics.pdf.PdfRenderer` to raster
 - Stores a `cachedBitmap` and the `cachedZoomLevel` at which it was rendered.
 - Only re-renders if `currentZoom / cachedZoomLevel > 2` or `cachedZoomLevel / currentZoom > 2`.
 - This avoids re-rasterizing on every minor zoom change while keeping text crisp at different zoom levels.
+
+### Canvas Coordinate System
+
+All stroke coordinates (`InputPoint.x`, `InputPoint.y`), bounding boxes, template spacing, and spatial index cells operate in **canvas-space units**, not screen pixels. The coordinate system:
+
+- **Origin:** Top-left corner of the canvas at (0, 0).
+- **Units:** 1 canvas-unit ≈ 1dp at 100% zoom. This provides DPI-independence: a stroke drawn at the same canvas coordinates renders at the same physical position regardless of screen density.
+- **Canvas dimensions:** Infinite scroll in both axes (no fixed page boundary). Templates repeat as needed. PDF-backed canvases have a logical page boundary matching the PDF page dimensions (in points at 72dpi), but the user can draw outside it.
+- **Zoom range:** 50% to 400% (200% max for PDF-backed canvases, see Performance section).
+
+**Touch-to-canvas coordinate mapping:** The `CommittedStrokeView` maintains a `Matrix` (the view transform) that maps between screen coordinates and canvas coordinates. This matrix encodes the current pan offset and zoom level. When `InProgressStrokesView.startStroke()` is called, this transform matrix is passed so the ink library renders in canvas space. The `EraserHandler` receives coordinates already transformed to canvas space — the `StrokeInputHandler` applies the inverse transform before passing points to the eraser.
 
 ---
 
@@ -427,7 +448,7 @@ class StrokeInputHandler(
 
 **androidx.ink → shared model** (`toSharedStroke`):
 - Iterates `inputs` (StrokeInputBatch), extracting x, y, pressure, tilt, orientation, timestamp per point.
-- Generates a new `StrokeId` via `uuid4()`.
+- Generates a new `StrokeId` via UUID generation (see Section 11 for which UUID approach to use).
 - Computes `BoundingBox` from the points.
 - Gets toolType/color/width from the current `ActiveToolState`.
 
@@ -441,7 +462,22 @@ class StrokeInputHandler(
 
 Two modes:
 1. **Stroke erase** — Tap to remove entire stroke. Queries spatial index for candidates in a `HIT_RADIUS` (8px) bounding box around the touch point, then does precise hit testing via `ink-geometry`.
-2. **Partial erase** — Scrub to erase portions. Builds an eraser shape from the path + width, uses `ink-geometry` to find intersections and compute split points. Produces a `PartialEraseCommand` with the original stroke and split fragments.
+2. **Partial erase** — Scrub to erase portions. This is the highest-risk implementation item due to the alpha status of `ink-geometry` and the complexity of splitting pressure-sensitive strokes.
+
+**Partial erase pipeline:**
+1. Build an eraser shape from the touch path + eraser width.
+2. Query spatial index for candidate strokes overlapping the eraser path bounding box.
+3. For each candidate, use `ink-geometry` intersection APIs to find where the eraser crosses the stroke.
+4. Split the original stroke at intersection points, producing N fragment strokes. Each fragment:
+   - Gets a new `StrokeId` (via UUID generation)
+   - Inherits the original stroke's `canvasId`, `toolType`, `colorArgb`, `baseWidth`
+   - Contains a subset of the original `InputPoint` list (timestamps preserved as-is)
+   - Gets a freshly computed `BoundingBox`
+   - Gets a new `sortOrder` (via `nextSortOrder` query)
+5. Produce a `PartialEraseCommand` containing the original stroke and all fragments.
+6. On execute: remove original from state/index, add all fragments. On undo: reverse.
+
+**Open risk:** The `ink-geometry` intersection API is undocumented alpha. A spike test is needed early in implementation to verify it handles: single intersection (2 fragments), multiple intersections (3+ fragments), near-endpoint intersections, and strokes with varying pressure. If the API proves unreliable, the fallback is point-by-point distance checking against the eraser path — slower but deterministic.
 
 ### GestureHandler
 
@@ -452,6 +488,8 @@ Handles multi-touch gestures when not drawing:
 - Double-tap → toggle zoom-to-fit / 100%
 
 Finger events that pass through palm rejection (when `stylusOnly = true`) are routed to the gesture detector instead of the stroke input handler.
+
+**Tool switching during active input:** Tool changes (pen/highlighter/eraser) are ignored while a stroke is in progress (`ACTION_DOWN` received but `ACTION_UP` not yet). The active tool is read at `ACTION_DOWN` time and locked for that stroke's duration. This prevents mid-stroke tool changes from corrupting state.
 
 ---
 
@@ -479,6 +517,8 @@ data class CanvasState(
 
 Immutable data class. Every mutation produces a new instance via `copy()`. The `spatialIndex` is mutable internally but travels with the state for convenience.
 
+**Implementation warning:** Because `StrokeSpatialIndex` is mutable, `data class` semantics break — `equals()`, `hashCode()`, and `copy()` will shallow-copy the index, meaning two "different" states share the same mutable instance. This is acceptable as long as the spatial index is always accessed via the current `StateFlow.value` and never compared across state snapshots. Do not use `CanvasState` in collections or comparisons that rely on structural equality. If this becomes a problem, move the spatial index out of `CanvasState` and into the `CanvasViewModel` as a separate field.
+
 ### ActiveToolState
 
 ```kotlin
@@ -491,6 +531,22 @@ data class ActiveToolState(
 ```
 
 Separate from `CanvasState` because tool selection doesn't affect the canvas content and shouldn't trigger canvas re-renders.
+
+### Threading Model
+
+All state mutations (stroke commit, erase, undo/redo, lasso operations) happen on the **main thread** via `StateFlow.update {}`. This is intentional:
+- `StrokeSpatialIndex` is not thread-safe — single-threaded access eliminates the need for synchronization.
+- `CanvasState` updates must be immediately visible to the rendering pipeline (also main thread).
+- `CommittedStrokeView.onDraw()` reads from `CanvasState` on the main thread.
+
+Background work:
+- `AutosaveManager` debounces and flushes on `Dispatchers.IO` for DB writes. Pending insert/delete lists are guarded by a `Mutex` (not `synchronized` — see KMP note below).
+- `StrokeRepository` read operations (canvas load) run on `Dispatchers.IO`.
+- `DraftyExporter`/`DraftyImporter` run on `Dispatchers.IO`.
+
+**KMP concurrency note:** `synchronized` is JVM-only and does not compile for Kotlin/Native (iOS). Since `AutosaveManager` lives in `commonMain`, it must use `kotlinx.coroutines.sync.Mutex` or `kotlinx.atomicfu` for thread safety instead.
+
+**SQLite WAL mode:** Must be enabled on the `AndroidSqliteDriver` to allow concurrent reads (rendering thread querying metadata) while autosave writes are in progress. SQLDelight's Android driver supports this via `AndroidSqliteDriver(schema, context, name, callback, properties = Properties().apply { put("journal_mode", "WAL") })` or equivalent configuration.
 
 ### CanvasViewModel
 
@@ -517,7 +573,9 @@ class CanvasViewModel(
 
 All canvas mutations go through the `UndoRedoManager` → `DrawCommand` pipeline. Tool state changes are direct `_toolState.update` calls (not undoable).
 
-**ViewModel lifecycle note:** `CanvasViewModel` is a plain Kotlin class in `commonMain` — it does not extend `androidx.lifecycle.ViewModel`. This means it won't automatically survive Android configuration changes (screen rotation). The implementation must either: (a) retain it via a `ViewModelStoreOwner` wrapper in `androidMain`, (b) use the KMP multiplatform lifecycle library (`androidx.lifecycle:lifecycle-viewmodel` for commonMain, available since KMP 1.6+), or (c) lock screen orientation for the canvas screen. This needs to be addressed during implementation.
+**ViewModel lifecycle note:** `CanvasViewModel` is a plain Kotlin class in `commonMain` — it does not extend `androidx.lifecycle.ViewModel`. This means it won't automatically survive Android configuration changes (screen rotation). Resolution: lock the canvas screen to landscape orientation (see Section 22 Assumptions). The library screen may use the KMP multiplatform lifecycle library if rotation support is desired.
+
+**Constructor injection:** All dependencies (`CanvasRepository`, `StrokeRepository`, `AutosaveManager`) must be passed via the constructor — not via `lateinit var`. The architecture.md code sample shows `lateinit var autosaveManager` which creates a crash-prone temporal coupling. Use DI (see Section 15) to provide all dependencies at construction time.
 
 ### DrawCommand Interface
 
@@ -669,6 +727,7 @@ Key behaviors:
 - **Force flush** — Called on `Lifecycle.ON_STOP` and `ViewModel.onCleared()`. Guarantees no data loss even if the app is killed.
 - **In-memory is source of truth** — DB writes never block the UI. The rendering always reads from `CanvasState`, not from the database.
 - **Crash window trade-off** — Between a stroke being committed to in-memory state and the debounced DB write (up to 300ms), a process-kill loses that stroke. The `flush()` on `ON_STOP` covers normal backgrounding; only a hard crash during active drawing loses data. This is an accepted trade-off for write coalescing performance.
+- **Thread safety:** Pending insert/delete lists must be guarded by `kotlinx.coroutines.sync.Mutex`, not `synchronized` (which is JVM-only and won't compile for iOS). See Section 7 Threading Model.
 
 ### Repository Interfaces
 
@@ -750,14 +809,17 @@ All canvases share the same backing PDF file. The `pdfBackingPath` and `pdfPageI
 
 ### PDF/PNG Export (CanvasExportRenderer)
 
+`CanvasExportRenderer` is a platform-only class (not `expect/actual`) because export rendering depends entirely on platform graphics APIs that have no meaningful shared interface:
+
 ```kotlin
-expect class CanvasExportRenderer {
+// androidMain/export/CanvasExportRenderer.kt
+class CanvasExportRenderer {
     suspend fun renderToPdf(canvas: Canvas, strokes: List<Stroke>, outputPath: String)
     suspend fun renderToPng(canvas: Canvas, strokes: List<Stroke>, outputPath: String, scale: Float)
 }
 ```
 
-Android implementation uses `android.graphics.pdf.PdfDocument` for PDF and `Bitmap` + PNG compression for images. Both composite the PDF backing (if any), template, and all strokes in the correct layer order.
+Android implementation uses `android.graphics.pdf.PdfDocument` for PDF and `Bitmap` + PNG compression for images. iOS will use Core Graphics / UIGraphicsPDFRenderer with a completely different API surface. Both composite the PDF backing (if any), template, and all strokes in the correct layer order.
 
 **Implementation note:** `DraftyExporter` and `DraftyImporter` involve ZIP compression and file I/O. Implementations must run on `Dispatchers.IO` — running synchronously on the main thread will cause ANR on large canvases.
 
@@ -784,6 +846,8 @@ class StrokeSpatialIndex(private val cellSize: Float = 256f) {
 - `forEachCell(box)` iterates all grid cells touched by a bounding box.
 - `query()` collects all stroke IDs from cells overlapping the visible region. Returns a `Set` (natural dedup for strokes spanning multiple cells).
 
+**Cell size rationale:** 256 canvas-units is roughly 1cm at 240dpi — approximately the width of a wide pen stroke. At typical handwriting density (~50 strokes visible in the viewport), this produces ~20-40 occupied cells. A large diagonal stroke spanning the full canvas (~2000 units) registers in ~64 cells, which is acceptable overhead. If profiling shows large strokes bloating the index, the cell size can be increased or a secondary "large stroke" list can bypass the grid.
+
 **Performance impact:** On a canvas with 2000 strokes, if only 200 are visible, the renderer draws 200 instead of 2000. This is the difference between smooth and janky scrolling on large canvases.
 
 ---
@@ -792,12 +856,21 @@ class StrokeSpatialIndex(private val cellSize: Float = 256f) {
 
 | Abstraction | commonMain (expect) | androidMain (actual) | iosMain (actual) |
 |---|---|---|---|
-| `generateUuid(): String` | expect fun | `java.util.UUID.randomUUID().toString()` | stub |
 | `currentTimeMillis(): Long` | expect fun | `System.currentTimeMillis()` | stub |
 | `DatabaseDriverFactory` | expect class | `AndroidSqliteDriver` | stub (`NativeSqliteDriver`) |
 | `PlatformPdfRenderer` | expect class | `android.graphics.pdf.PdfRenderer` | stub (CoreGraphics) |
 
 These are the only `expect/actual` declarations. Everything else is either fully shared or only exists in one platform source set (like rendering classes).
+
+**UUID generation — resolved:** The original design had both `com.benasher44:uuid` as a dependency AND `expect fun generateUuid()` as a platform abstraction. These are redundant.
+
+**Option A (recommended): Use `kotlin.uuid.Uuid` (stdlib).** Kotlin 2.0+ includes `kotlin.uuid.Uuid` as an experimental stdlib API. Since this project uses Kotlin 2.1.10, use `Uuid.random().toString()` directly in `commonMain`. No external dependency, no expect/actual needed. Requires `@OptIn(ExperimentalUuidApi::class)`.
+
+**Option B: Keep `com.benasher44:uuid`.** The library is already KMP-multiplatform — it works in `commonMain` directly. No expect/actual needed. Use `uuid4().toString()`. More stable API (not experimental), but adds an external dependency for something the stdlib now provides.
+
+Either way, remove the `expect fun generateUuid()` / `actual fun` pattern and the corresponding `UuidGeneratorAndroid` / `UuidGeneratorIos` files.
+
+**`CanvasExportRenderer`** is intentionally NOT an expect/actual — it's a platform-only class (see Section 9). Each platform will have its own export renderer with a platform-appropriate API.
 
 ---
 
@@ -843,6 +916,8 @@ Everything else — the files exist with correct package declarations but empty 
 
 The project has a complete architecture design (documented in `architecture.md` with full code samples) and a complete file scaffold, but no functional implementation yet. The `.sq` and `.proto` schemas are the only code that produces real output (via code generation). All Kotlin source files are package-declaration stubs waiting to be filled with the implementations documented in `architecture.md`.
 
+**Note on document roles:** This `research.md` focuses on findings, analysis, constraints, risks, and decisions. `architecture.md` contains the canonical design with full code samples. Where both documents describe the same system (rendering pipeline, state management, persistence), `architecture.md` is the source of truth for implementation details. This document provides the *analysis* (why decisions were made, what risks exist, what alternatives were considered).
+
 ---
 
 ## 13. Known Risks & Limitations
@@ -850,11 +925,12 @@ The project has a complete architecture design (documented in `architecture.md` 
 | Risk | Severity | Detail | Mitigation |
 |------|----------|--------|------------|
 | **androidx.ink is alpha01** | High | The entire rendering pipeline depends on `1.0.0-alpha01`. API will change, documentation is sparse, native crashes are likely. | Pin version, isolate behind `StrokeAdapter`/`RenderableStroke` abstractions so API changes don't propagate. Monitor release notes. |
+| **Partial erase via ink-geometry** | High | The `ink-geometry` intersection API is undocumented alpha. Splitting pressure-sensitive strokes is the hardest feature in the app. | Spike test early. Fallback: point-by-point distance checking (see Section 6). |
 | **Unbounded RenderableStrokeCache** | Medium | HashMap grows with every stroke ever rendered. No eviction. OOM risk on heavy canvases. | Add LRU eviction or viewport-based cleanup before production. |
-| **PDF single-bitmap rasterization** | Medium | High-zoom rendering on high-res tablets allocates oversized bitmaps. | Cap max zoom for PDF canvases in v1. Tiled rendering for v2. |
+| **PDF single-bitmap rasterization** | Medium | At 400% zoom on tablet-class canvas, bitmap would be ~340MB ARGB. OOM guaranteed. | Cap max zoom at 200% for PDF canvases in v1 (~85MB max). Tiled rendering for v2. |
 | **ViewModel doesn't survive config changes** | Medium | `CanvasViewModel` is a plain class, not `androidx.lifecycle.ViewModel`. Screen rotation destroys state. | Use KMP multiplatform lifecycle ViewModel or lock orientation on canvas screen. |
-| **collectAsState() lifecycle leak** | Low | Flow collection continues when app is backgrounded. | Switch to `collectAsStateWithLifecycle()` in `DrawingCanvas`. |
-| **Long/Int colorArgb inconsistency** | Low | `Stroke.colorArgb` is `Long`, `ActiveToolState.colorArgb` is `Int`. Conversion in ViewModel. | Unify to one type during implementation. |
+| **collectAsState() lifecycle leak** | Medium | Flow collection continues when backgrounded, causing unnecessary state updates and potential inconsistency with inactive Compose tree. | Use `collectAsStateWithLifecycle()` in `DrawingCanvas` from day one. |
+| **Long/Int colorArgb inconsistency** | Low | `ActiveToolState.colorArgb` is `Int` while all other color representations use `Long`. | Unify `ActiveToolState.colorArgb` to `Long` during implementation. |
 
 ---
 
@@ -864,7 +940,7 @@ The project has a complete architecture design (documented in `architecture.md` 
 |----------|-----------|--------------|
 | `Stroke.colorArgb: Long` not `Int` | Avoids sign-extension bugs with high-alpha ARGB across KMP boundary | — |
 | Bounding box in protobuf blob, not SQL columns | Schema simplicity, no extra migrations | Promote to SQL columns if >5000 strokes causes culling bottleneck |
-| Full stroke load on canvas open | Typical canvas 100-2000 strokes (~1MB) — instant on tablet | Lazy load via metadata + on-demand point data queries |
+| Full stroke load on canvas open | Typical canvas 100-2000 strokes (~6-12MB protobuf, see estimate below) — fast on modern tablets | Lazy load via metadata + on-demand point data queries |
 | 300ms autosave debounce | Coalesces rapid strokes into one fsync | Reduce to 100ms if data loss observed |
 | Undo/redo in-memory, per-session | Simple, no command serialization | Persist to DB if cross-session undo requested |
 | `ON DELETE SET NULL` for canvas.folder_id | **Never destroy user data** on folder delete | Change to CASCADE if explicit "delete folder and contents" added |
@@ -878,9 +954,105 @@ The project has a complete architecture design (documented in `architecture.md` 
 | SQLDelight (not Room) | KMP-first design, more battle-tested for multiplatform | Room 2.7+ is viable alternative |
 | v1 cloud sync = manual export/import via share sheet | Zero infrastructure. User saves `.drafty` files to Drive/email/files app. | Supabase for real sync in v2+ |
 
+### Stroke data size estimate
+
+A single `InputPoint` serialized as `StrokePointProto` contains 4 floats (x, y, pressure, tilt) + 1 float (orientation) + 1 sint64 (timestamp delta) ≈ 24-28 bytes in protobuf encoding. Average handwriting stroke ≈ 100-200 points ≈ 3-6KB per stroke. 2000 strokes ≈ **6-12MB** of protobuf point data. This is still fast to load on modern tablets (sequential read from SQLite), but the original "~1MB" estimate was off by an order of magnitude. Full-load-on-open remains the correct strategy; lazy loading adds complexity without meaningful benefit at this scale.
+
 ---
 
-## 15. Theming — Neon/Cyberpunk Minimalism
+## 15. Dependency Injection
+
+`DraftyApplication.kt` is described as "placeholder for DI init" but no DI strategy is defined. The ViewModel requires `CanvasRepository` and `StrokeRepository` as constructor parameters, and those require a `DatabaseDriverFactory`.
+
+**Option A (recommended): Koin.** Lightweight, KMP-native DI framework. Define a `commonMain` module with repository interfaces and a platform module with actual implementations. Minimal boilerplate, good Compose integration via `koinViewModel()`.
+
+**Option B: Manual DI.** Create a simple `AppModule` object in `commonMain` that holds lazy singletons. Platform code initializes it with the `DatabaseDriverFactory`. No external dependency but becomes unwieldy as the dependency graph grows.
+
+Either way, the wiring pattern is:
+1. `DraftyApplication.onCreate()` creates the `DatabaseDriverFactory` and initializes DI.
+2. `DraftyApp` composable retrieves `LibraryViewModel` and `CanvasViewModel` from DI.
+3. ViewModels receive repository implementations via constructor injection (never `lateinit var`).
+
+---
+
+## 16. Navigation
+
+The Library-to-Canvas navigation and back-stack management need a concrete implementation.
+
+**Option A (recommended): Compose Navigation (KMP).** `navigation-compose` 2.8+ supports KMP. Define a nav graph with two destinations: `Library` and `Canvas(canvasId: String)`. Handles back-stack, deep links (for `.drafty` file open intents), and argument passing. Most standard approach for Compose-based apps.
+
+**Option B: Voyager.** KMP-first navigation library, simpler API than Compose Navigation, good ViewModel integration. Less ecosystem support than the official library.
+
+**Option C: Manual navigation.** A simple `sealed class Screen` with a `MutableStateFlow<Screen>` in `DraftyApp`. Sufficient for two screens, but doesn't handle deep links or complex back-stack scenarios.
+
+**Deep link requirement:** When the user opens a `.drafty` file via Android's share sheet or file manager, the app should navigate directly to the imported canvas. This requires intent handling in `MainActivity` and a nav deep link definition.
+
+---
+
+## 17. Thumbnail Generation
+
+Thumbnails are PNG byte arrays stored in `canvas.thumbnail`. Generation strategy:
+
+- **When:** On canvas close (when the user navigates back to the library) and on app background (`Lifecycle.ON_STOP`). Not after every stroke — thumbnail generation involves rendering all strokes and is too expensive for real-time updates.
+- **Resolution:** 400x560 pixels (matching the PDF import thumbnail size). This gives a crisp preview at typical library grid card sizes without excessive memory.
+- **How:** `CanvasExportRenderer.renderToPng()` at a reduced scale, then store via `CanvasRepository.updateThumbnail()`.
+- **Empty canvas:** No thumbnail generated (uses a placeholder in the library UI).
+
+---
+
+## 18. Error Handling & Recovery
+
+**Corrupted protobuf blob:** If `StrokeSerializer.deserialize()` throws on a malformed blob, skip that stroke and log a warning. The canvas loads with the remaining strokes intact. Do not crash.
+
+**Missing backing PDF:** If a PDF-backed canvas references a `pdfBackingPath` that no longer exists (file deleted, storage cleared), render the canvas without the PDF background. Show a non-blocking toast/snackbar: "PDF background missing — annotations preserved." The user's strokes are never lost.
+
+**SQLite write failure:** `AutosaveManager.flush()` should catch write exceptions, log them, and retry once on the next flush cycle. If the retry also fails, surface an error to the user via a snackbar. Do not silently discard pending writes.
+
+**App process kill during drawing:** Accepted trade-off — up to 300ms of strokes may be lost (the autosave debounce window). The `flush()` on `ON_STOP` covers normal backgrounding. Only a hard crash during active drawing loses data.
+
+---
+
+## 19. `StrokeRepository` — No `update()` Method (Intentional)
+
+The `StrokeRepository` interface has `insert()` and `delete()` but no `update()`. This is a deliberate design choice:
+
+- **Modify = delete + insert** is handled by `AutosaveManager.onStrokeModified()`, which queues a delete of the old stroke and an insert of the updated stroke within the same flush transaction.
+- **Atomicity:** Both operations execute in a single SQLDelight transaction, so there's no window where the stroke is missing.
+- **Simplicity:** No partial-update SQL queries needed. Stroke data includes a BLOB (point_data) that would need to be fully replaced anyway, so an UPDATE offers no efficiency advantage over DELETE + INSERT.
+
+---
+
+## 20. `CanvasClipboard` (Deferred to v2)
+
+The `architecture.md` system diagram includes `CanvasClipboard` in the `CanvasViewModel` box. This feature (lasso select → copy → paste strokes) is **deferred to v2**. The v1 lasso tools support move, recolor, and delete only. The `CanvasClipboard` reference should be removed from `architecture.md`'s v1 diagram.
+
+---
+
+## 21. `CanvasState.templateRenderer` Ownership
+
+`architecture.md`'s `CommittedStrokeView.onDraw()` code references `state.templateRenderer?.draw(canvas, visibleRegion)`, implying `CanvasState` owns a `TemplateRenderer` instance. This is incorrect — `CanvasState` is a `commonMain` data class and must not hold platform-specific renderer references.
+
+**Resolution:** `CommittedStrokeView` owns the `TemplateRenderer` instance. It reads `canvasState.template` (the `Template` enum) and selects the appropriate renderer implementation (Lined, Grid, Dotted, Blank, or PdfPageRenderer). The `bind()` method on `CommittedStrokeView` updates the renderer when the template changes. This must be corrected in `architecture.md`.
+
+---
+
+## 22. Assumptions
+
+These assumptions are not stated elsewhere but underpin the architecture. Violations will require design changes.
+
+| Assumption | Implication |
+|---|---|
+| **Single canvas open at a time** | One `CanvasViewModel` instance. No concurrent canvas state management. |
+| **Canvas screen locks to landscape orientation** | Resolves the ViewModel lifecycle issue (no configuration changes to survive). Must be declared in `AndroidManifest.xml` via `android:screenOrientation="landscape"`. The library screen may support both orientations. |
+| **English-only for v1** | No RTL layout support, no string localization infrastructure. Must be addressed before international release. |
+| **No accessibility features for v1** | No content descriptions on canvas elements, no screen reader support for stroke content. Required for Play Store accessibility compliance before broad release. |
+| **Single-window mode only** | No split-screen, freeform multi-window, or Samsung DeX support. The drawing canvas assumes it owns the full screen. |
+| **All state mutations are main-thread-sequential** | Enables unsynchronized `StrokeSpatialIndex`. If any mutation moves off the main thread, synchronization must be added. |
+| **SQLite WAL mode enabled** | Required for concurrent read (rendering) during autosave write. Must be configured in `DatabaseDriverFactory`. |
+
+---
+
+## 23. Theming — Neon/Cyberpunk Minimalism
 
 ### Design Direction
 
