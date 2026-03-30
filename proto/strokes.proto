@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package com.drafty.core.data;
+
+option java_package = "com.drafty.core.data.proto";
+option java_multiple_files = true;
+
+/**
+ * Stroke data file format for Drafty.
+ * Each page's strokes are stored in a separate .pb file.
+ * See: docs/architecture.md (Persistence Strategy)
+ */
+
+message StrokesFile {
+  int32 version = 1;
+  repeated Stroke strokes = 2;
+}
+
+message Stroke {
+  string id = 1;
+  repeated InkPoint points = 2;
+  uint32 color = 3;           // ARGB packed int
+  float base_thickness = 4;
+  Tool tool = 5;
+  int64 timestamp = 6;
+}
+
+message InkPoint {
+  float x = 1;
+  float y = 2;
+  float pressure = 3;
+  float tilt = 4;
+  int64 timestamp = 5;
+}
+
+enum Tool {
+  PEN = 0;
+  HIGHLIGHTER = 1;
+}

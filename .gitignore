@@ -1,0 +1,51 @@
+# Built application files
+*.apk
+*.aar
+*.ap_
+*.aab
+
+# Files for the ART/Dalvik VM
+*.dex
+
+# Java class files
+*.class
+
+# Generated files
+bin/
+gen/
+out/
+build/
+
+# Gradle files
+.gradle/
+gradle-app.setting
+!gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# Local configuration
+local.properties
+
+# Android Studio
+*.iml
+.idea/
+.DS_Store
+
+# Signing files
+*.jks
+*.keystore
+
+# Google Services
+google-services.json
+
+# Proguard
+proguard/
+
+# Log files
+*.log
+
+# Protobuf generated
+**/generated/
+
+# OS files
+.DS_Store
+Thumbs.db
