@@ -256,9 +256,11 @@ Extracted shared logic into two helper classes and created a single unified view
 - `UnifiedCanvasViewManager.kt` + `UnifiedCanvasModule.kt` — single React Native bridge
 - `CanvasView.tsx` + `CanvasModule.ts` — single React wrapper (PdfCanvasView.tsx/PdfCanvasModule.ts deleted)
 
-Blank notes now support: multi-page scrolling, pinch zoom, overscroll-to-add-page, add/prepend page buttons, page-aware stroke serialization (version 2 JSON format), and legacy coordinate migration.
+Both blank notes and PDFs now have identical capabilities: multi-page scrolling, pinch zoom, overscroll-to-add-page (blank pages appended/prepended to PDFs too), `+ Page` button, hand/scroll tool, thumbnail strip, go-to-page modal, page indicator, same theming. Page-aware stroke serialization (version 2 JSON format) and legacy coordinate migration.
+
+The two separate editor screens (`NoteEditorScreen` + `PdfViewerScreen`) were merged into a single `EditorScreen`. Navigation uses a single `Editor` route — the `note.pdfUri` presence determines PDF vs blank mode.
 
 **Files/architecture affected:**
-- Deleted: `DrawingCanvas.kt`, `PdfDrawingView.kt`, `CanvasViewManager.kt`, `PdfCanvasViewManager.kt`, `CanvasModule.kt` (bridge), `PdfCanvasModule.kt` (bridge), `PdfCanvasView.tsx`, `PdfCanvasModule.ts`
-- Created: `BaseDrawingEngine.kt`, `PagedScrollEngine.kt`, `UnifiedCanvasView.kt`, `UnifiedCanvasViewManager.kt`, `UnifiedCanvasModule.kt`
-- Modified: `CanvasPackage.kt`, `CanvasView.tsx`, `CanvasModule.ts`, `NoteEditorScreen.tsx`, `PdfViewerScreen.tsx`, `HomeScreen.tsx`, `Stroke.kt` (added `UndoAction.AddPage`)
+- Deleted: `DrawingCanvas.kt`, `PdfDrawingView.kt`, `CanvasViewManager.kt`, `PdfCanvasViewManager.kt`, `CanvasModule.kt` (bridge), `PdfCanvasModule.kt` (bridge), `PdfCanvasView.tsx`, `PdfCanvasModule.ts`, `NoteEditorScreen.tsx`, `PdfViewerScreen.tsx`
+- Created: `BaseDrawingEngine.kt`, `PagedScrollEngine.kt`, `UnifiedCanvasView.kt`, `UnifiedCanvasViewManager.kt`, `UnifiedCanvasModule.kt`, `EditorScreen.tsx`
+- Modified: `CanvasPackage.kt`, `CanvasView.tsx`, `CanvasModule.ts`, `HomeScreen.tsx`, `navigation/index.tsx`, `Stroke.kt` (added `UndoAction.AddPage`)

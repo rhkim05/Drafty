@@ -160,11 +160,7 @@ export default function HomeScreen() {
   }, [notes, selectedCategoryId]);
 
   const openNote = (note: Note) => {
-    if (note.type === 'pdf') {
-      navigation.navigate('PdfViewer', { note });
-    } else {
-      navigation.navigate('NoteEditor', { note });
-    }
+    navigation.navigate('Editor', { note });
   };
 
   const createNote = () => {
@@ -176,7 +172,7 @@ export default function HomeScreen() {
       type: 'note',
     };
     addNote(note);
-    navigation.navigate('NoteEditor', { note });
+    navigation.navigate('Editor', { note });
   };
 
   const importPdf = async () => {

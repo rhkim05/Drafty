@@ -149,7 +149,6 @@ class UnifiedCanvasView(context: Context) : View(context), DrawingEngineHost {
     }
 
     fun addPage(aspectRatio: Float = defaultAspectRatio) {
-        if (isPdf) return
         scrollEngine.addPage(aspectRatio)
         val pageIndex = scrollEngine.getPageCount() - 1
         drawingEngine.pushUndoAction(UndoAction.AddPage(pageIndex))
@@ -158,7 +157,6 @@ class UnifiedCanvasView(context: Context) : View(context), DrawingEngineHost {
     }
 
     fun prependPage(aspectRatio: Float = defaultAspectRatio) {
-        if (isPdf) return
         val offset = scrollEngine.prependPage(aspectRatio)
         // Shift all stroke Y-coordinates by the new page height
         for (stroke in drawingEngine.committedStrokes) {
@@ -176,6 +174,8 @@ class UnifiedCanvasView(context: Context) : View(context), DrawingEngineHost {
         super.onSizeChanged(w, h, oldw, oldh)
         if (pendingPdfPath != null) {
             openPdf(pendingPdfPath!!)
+        } else if (w > 0 && scrollEngine.getPageCount() == 0 && !isPdf) {
+            initBlankPages(1)
         } else if (w != oldw && w > 0) {
             scrollEngine.reLayoutPages(w)
         }
@@ -218,9 +218,7 @@ class UnifiedCanvasView(context: Context) : View(context), DrawingEngineHost {
         scrollEngine.drawScrollbar(canvas)
         drawingEngine.drawEraserCursor(canvas, eraserThickness, eraserMode, scrollEngine.scale)
 
-        if (!isPdf) {
-            scrollEngine.drawOverscrollIndicator(canvas)
-        }
+        scrollEngine.drawOverscrollIndicator(canvas)
 
         if (scrollEngine.computeScroll()) postInvalidateOnAnimation()
     }
@@ -243,13 +241,10 @@ class UnifiedCanvasView(context: Context) : View(context), DrawingEngineHost {
             val prevState = scrollEngine.lastOverscrollState()
             val handled = scrollEngine.handleScroll(event)
             if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
-                val state = prevState
-                if (!isPdf) {
-                    when (state) {
-                        OverscrollState.BOTTOM_READY -> addPage()
-                        OverscrollState.TOP_READY -> prependPage()
-                        OverscrollState.NONE -> {}
-                    }
+                when (prevState) {
+                    OverscrollState.BOTTOM_READY -> addPage()
+                    OverscrollState.TOP_READY -> prependPage()
+                    OverscrollState.NONE -> {}
                 }
             }
             return handled
@@ -305,7 +300,7 @@ class UnifiedCanvasView(context: Context) : View(context), DrawingEngineHost {
 
     fun undo() {
         val action = drawingEngine.undo() ?: return
-        if (action is UndoAction.AddPage && !isPdf) {
+        if (action is UndoAction.AddPage) {
             handleUndoAddPage(action)
         }
         invalidate()
@@ -313,7 +308,7 @@ class UnifiedCanvasView(context: Context) : View(context), DrawingEngineHost {
 
     fun redo() {
         val action = drawingEngine.redo() ?: return
-        if (action is UndoAction.AddPage && !isPdf) {
+        if (action is UndoAction.AddPage) {
             handleRedoAddPage(action)
         }
         invalidate()

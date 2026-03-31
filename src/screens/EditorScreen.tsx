@@ -21,34 +21,37 @@ import CanvasView from '../native/CanvasView';
 import CanvasModule from '../native/CanvasModule';
 import { useToolStore } from '../store/useToolStore';
 import { useNotebookStore } from '../store/useNotebookStore';
+import { useTheme } from '../styles/theme';
 import ThumbnailStrip from '../components/ThumbnailStrip';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'PdfViewer'>;
+type Props = NativeStackScreenProps<RootStackParamList, 'Editor'>;
 
 const DRAWINGS_DIR = `${RNFS.DocumentDirectoryPath}/drawings`;
 
-export default function PdfViewerScreen({ route, navigation }: Props) {
+export default function EditorScreen({ route, navigation }: Props) {
   const { note } = route.params;
-  const [totalPages, setTotalPages] = useState(0);
+  const isPdf = note.type === 'pdf';
+  const canvasRef = useRef<any>(null);
+  const [totalPages, setTotalPages] = useState(isPdf ? 0 : 1);
   const [currentPage, setCurrentPage] = useState(note.lastPage ?? 1);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(isPdf);
   const [showStrip, setShowStrip] = useState(false);
   const [showPageInput, setShowPageInput] = useState(false);
   const [pageInputText, setPageInputText] = useState('');
-  const viewRef = useRef<any>(null);
   const updateNote = useNotebookStore(s => s.updateNote);
   const activeTool      = useToolStore(s => s.activeTool);
   const penThickness    = useToolStore(s => s.penThickness);
   const eraserThickness = useToolStore(s => s.eraserThickness);
   const eraserMode      = useToolStore(s => s.eraserMode);
   const penColor        = useToolStore(s => s.penColor);
+  const theme = useTheme();
 
-  // Default to scroll/select mode on entry
   useEffect(() => {
-    useToolStore.getState().setTool('select');
-  }, []);
+    if (isPdf) {
+      useToolStore.getState().setTool('select');
+    }
+  }, [isPdf]);
 
-  // Listen to native events from PdfDrawingView
   useEffect(() => {
     const pageSub = DeviceEventEmitter.addListener(
       'canvasPageChanged',
@@ -62,32 +65,33 @@ export default function PdfViewerScreen({ route, navigation }: Props) {
         if (!note.totalPages || note.totalPages !== tp) {
           updateNote(note.id, { totalPages: tp });
         }
-        // Jump to last checkpoint
         if (note.lastPage && note.lastPage > 1) {
-          const tag = findNodeHandle(viewRef.current);
+          const tag = findNodeHandle(canvasRef.current);
           if (tag) CanvasModule.scrollToPage(tag, note.lastPage);
         }
       },
     );
     return () => { pageSub.remove(); loadSub.remove(); };
-  }, [note.lastPage]);
+  }, [note.lastPage, note.totalPages, note.id, updateNote]);
 
-  // Load saved strokes once the view is laid out
-  const handleViewLayout = useCallback(async () => {
+  const handleLayout = useCallback(async () => {
     if (!note.drawingUri) return;
     const exists = await RNFS.exists(note.drawingUri);
     if (!exists) return;
     const json = await RNFS.readFile(note.drawingUri, 'utf8');
-    // Only load flat-array format (document coordinates); skip legacy per-page format
-    if (!json.startsWith('[')) return;
-    const tag = findNodeHandle(viewRef.current);
-    if (tag) CanvasModule.loadStrokes(tag, json);
-  }, [note.drawingUri]);
+    const tag = findNodeHandle(canvasRef.current);
+    if (tag) {
+      CanvasModule.loadStrokes(tag, json);
+      if (!isPdf) {
+        const pageCount = await CanvasModule.getPageCount(tag);
+        setTotalPages(pageCount);
+      }
+    }
+  }, [note.drawingUri, isPdf]);
 
-  // Save strokes and page checkpoint when navigating back
   const saveStrokes = useCallback(async () => {
     updateNote(note.id, { lastPage: currentPage, updatedAt: Date.now() });
-    const tag = findNodeHandle(viewRef.current);
+    const tag = findNodeHandle(canvasRef.current);
     if (!tag) return;
     const json = await CanvasModule.getStrokes(tag);
     if (json === '[]') return;
@@ -102,56 +106,71 @@ export default function PdfViewerScreen({ route, navigation }: Props) {
     return unsub;
   }, [navigation, saveStrokes]);
 
+  const handleUndo = useCallback(() => {
+    const tag = findNodeHandle(canvasRef.current);
+    if (tag) CanvasModule.undo(tag);
+  }, []);
+
+  const handleRedo = useCallback(() => {
+    const tag = findNodeHandle(canvasRef.current);
+    if (tag) CanvasModule.redo(tag);
+  }, []);
+
+  const handleAddPage = useCallback(() => {
+    const tag = findNodeHandle(canvasRef.current);
+    if (tag) {
+      CanvasModule.addPage(tag);
+      setTotalPages(p => p + 1);
+    }
+  }, []);
+
   const handleGoToPage = useCallback(() => {
     const page = parseInt(pageInputText, 10);
     if (!isNaN(page) && page >= 1 && page <= totalPages) {
-      const tag = findNodeHandle(viewRef.current);
+      const tag = findNodeHandle(canvasRef.current);
       if (tag) CanvasModule.scrollToPage(tag, page);
     }
     setShowPageInput(false);
     setPageInputText('');
   }, [pageInputText, totalPages]);
 
-  const handleUndo = useCallback(() => {
-    const tag = findNodeHandle(viewRef.current);
-    if (tag) CanvasModule.undo(tag);
-  }, []);
-
-  const handleRedo = useCallback(() => {
-    const tag = findNodeHandle(viewRef.current);
-    if (tag) CanvasModule.redo(tag);
+  const handlePageSelect = useCallback((page: number) => {
+    const tag = findNodeHandle(canvasRef.current);
+    if (tag) CanvasModule.scrollToPage(tag, page);
   }, []);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+      <View style={[styles.header, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Text style={styles.backButtonText}>← Back</Text>
+          <Text style={[styles.backButtonText, { color: theme.text }]}>← Back</Text>
         </TouchableOpacity>
-        <Text style={styles.title} numberOfLines={1}>{note.title}</Text>
-        <View style={styles.headerRight} />
+        <Text style={[styles.title, { color: theme.text }]} numberOfLines={1}>{note.title}</Text>
+        <TouchableOpacity style={styles.addPageBtn} onPress={handleAddPage}>
+          <Text style={[styles.addPageText, { color: theme.text }]}>+ Page</Text>
+        </TouchableOpacity>
       </View>
 
       <Toolbar
         showHandTool
         onUndo={handleUndo}
         onRedo={handleRedo}
-        onToggleStrip={() => setShowStrip(s => !s)}
+        onToggleStrip={totalPages > 0 ? () => setShowStrip(s => !s) : undefined}
         showStrip={showStrip}
         currentPage={currentPage}
         totalPages={totalPages}
       />
 
-      <View style={styles.pdfContainer}>
+      <View style={styles.canvasContainer}>
         {loading && (
-          <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="large" color="#FFFFFF" />
-            <Text style={styles.loadingText}>Loading PDF...</Text>
+          <View style={[styles.loadingOverlay, { backgroundColor: theme.bg }]}>
+            <ActivityIndicator size="large" color={theme.text} />
+            <Text style={[styles.loadingText, { color: theme.textSub }]}>Loading...</Text>
           </View>
         )}
 
         <CanvasView
-          ref={viewRef}
+          ref={canvasRef}
           pdfUri={note.pdfUri}
           tool={activeTool}
           penColor={penColor}
@@ -159,7 +178,7 @@ export default function PdfViewerScreen({ route, navigation }: Props) {
           eraserThickness={eraserThickness}
           eraserMode={eraserMode}
           style={StyleSheet.absoluteFill}
-          onLayout={handleViewLayout}
+          onLayout={handleLayout}
         />
 
         {totalPages > 0 && (
@@ -176,10 +195,10 @@ export default function PdfViewerScreen({ route, navigation }: Props) {
       <Modal visible={showPageInput} transparent animationType="fade" onRequestClose={() => setShowPageInput(false)}>
         <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setShowPageInput(false)} />
-          <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>Go to page</Text>
+          <View style={[styles.modalBox, { backgroundColor: theme.surface }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>Go to page</Text>
             <TextInput
-              style={styles.modalInput}
+              style={[styles.modalInput, { backgroundColor: theme.bg, color: theme.text }]}
               keyboardType="number-pad"
               value={pageInputText}
               onChangeText={setPageInputText}
@@ -188,10 +207,10 @@ export default function PdfViewerScreen({ route, navigation }: Props) {
               autoFocus
               maxLength={6}
             />
-            <Text style={styles.modalHint}>1 – {totalPages}</Text>
+            <Text style={[styles.modalHint, { color: theme.textSub }]}>1 – {totalPages}</Text>
             <View style={styles.modalButtons}>
-              <TouchableOpacity style={styles.modalCancel} onPress={() => setShowPageInput(false)}>
-                <Text style={styles.modalCancelText}>Cancel</Text>
+              <TouchableOpacity style={[styles.modalCancel, { backgroundColor: theme.surfaceAlt }]} onPress={() => setShowPageInput(false)}>
+                <Text style={[styles.modalCancelText, { color: theme.textSub }]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.modalGo} onPress={handleGoToPage}>
                 <Text style={styles.modalGoText}>Go</Text>
@@ -201,16 +220,13 @@ export default function PdfViewerScreen({ route, navigation }: Props) {
         </KeyboardAvoidingView>
       </Modal>
 
-      {showStrip && note.pdfUri && totalPages > 0 && (
+      {showStrip && isPdf && note.pdfUri && totalPages > 0 && (
         <ThumbnailStrip
           pdfUri={note.pdfUri}
           noteId={note.id}
           totalPages={totalPages}
           currentPage={currentPage}
-          onPageSelect={(page) => {
-            const tag = findNodeHandle(viewRef.current);
-            if (tag) CanvasModule.scrollToPage(tag, page);
-          }}
+          onPageSelect={handlePageSelect}
         />
       )}
     </SafeAreaView>
@@ -218,20 +234,21 @@ export default function PdfViewerScreen({ route, navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#2C2C2C' },
+  container: { flex: 1 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingVertical: 12,
-    backgroundColor: '#1A1A1A',
+    borderBottomWidth: 1,
   },
   backButton: { paddingVertical: 6, paddingRight: 16 },
-  backButtonText: { color: '#FFFFFF', fontSize: 16 },
-  title: { flex: 1, color: '#FFFFFF', fontSize: 16, fontWeight: '600', textAlign: 'center' },
-  headerRight: { minWidth: 60 },
-  pdfContainer: { flex: 1 },
+  backButtonText: { fontSize: 16 },
+  title: { flex: 1, fontSize: 16, fontWeight: '600', textAlign: 'center' },
+  addPageBtn: { paddingVertical: 6, paddingLeft: 16 },
+  addPageText: { fontSize: 14, fontWeight: '500' },
+  canvasContainer: { flex: 1 },
   pageIndex: {
     position: 'absolute',
     bottom: 16,
@@ -246,10 +263,9 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#2C2C2C',
     zIndex: 1,
   },
-  loadingText: { color: '#AAAAAA', marginTop: 12, fontSize: 14 },
+  loadingText: { marginTop: 12, fontSize: 14 },
   modalOverlay: {
     flex: 1,
     alignItems: 'center',
@@ -257,16 +273,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.55)',
   },
   modalBox: {
-    backgroundColor: '#2C2C2C',
     borderRadius: 14,
     padding: 24,
     width: 260,
     alignItems: 'center',
   },
-  modalTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '600', marginBottom: 16 },
+  modalTitle: { fontSize: 16, fontWeight: '600', marginBottom: 16 },
   modalInput: {
-    backgroundColor: '#1A1A1A',
-    color: '#FFFFFF',
     fontSize: 28,
     fontWeight: '700',
     textAlign: 'center',
@@ -275,13 +288,13 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     marginBottom: 6,
   },
-  modalHint: { color: '#777', fontSize: 12, marginBottom: 20 },
+  modalHint: { fontSize: 12, marginBottom: 20 },
   modalButtons: { flexDirection: 'row', gap: 12 },
   modalCancel: {
     flex: 1, paddingVertical: 10, borderRadius: 8,
-    backgroundColor: '#3A3A3A', alignItems: 'center',
+    alignItems: 'center',
   },
-  modalCancelText: { color: '#AAA', fontSize: 15 },
+  modalCancelText: { fontSize: 15 },
   modalGo: {
     flex: 1, paddingVertical: 10, borderRadius: 8,
     backgroundColor: '#4A90E2', alignItems: 'center',
