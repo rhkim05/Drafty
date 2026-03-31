@@ -12,11 +12,17 @@ interface SectionDao {
     @Query("SELECT * FROM sections WHERE notebook_id = :notebookId ORDER BY sort_order ASC")
     fun getByNotebookId(notebookId: String): Flow<List<SectionEntity>>
 
+    @Query("SELECT * FROM sections WHERE id = :id")
+    suspend fun getById(id: String): SectionEntity?
+
     @Insert
     suspend fun insert(section: SectionEntity)
 
     @Update
     suspend fun update(section: SectionEntity)
+
+    @Update
+    suspend fun updateSortOrders(sections: List<SectionEntity>)
 
     @Query("DELETE FROM sections WHERE id = :id")
     suspend fun deleteById(id: String)

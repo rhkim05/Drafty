@@ -2,7 +2,7 @@
 
 > References: [idea.md](./idea.md) | [plan.md](./plan.md) | [tech-stack.md](./tech-stack.md) | [architecture.md](./architecture.md)
 >
-> **Last updated**: Phase 0 — Project scaffold created
+> **Last updated**: Phase 3 — Notebook Organization & UI (code complete)
 
 ---
 
@@ -87,15 +87,22 @@ core/domain/
     │   └── PaperTemplate.kt                 # enum: BLANK, LINED, GRID, DOTTED, CORNELL
     ├── repository/
     │   ├── NotebookRepository.kt            # interface
+    │   ├── SectionRepository.kt             # interface (Phase 3)
     │   ├── PageRepository.kt                # interface
     │   ├── StrokeRepository.kt              # interface
     │   └── PdfRepository.kt                 # interface
     └── usecase/
         ├── notebook/
-        │   ├── CreateNotebookUseCase.kt
+        │   ├── CreateNotebookUseCase.kt     # auto-creates default section + page
         │   ├── GetNotebooksUseCase.kt
         │   ├── DeleteNotebookUseCase.kt
         │   └── UpdateNotebookUseCase.kt
+        ├── section/                          # Phase 3
+        │   ├── GetSectionsUseCase.kt
+        │   ├── CreateSectionUseCase.kt
+        │   ├── RenameSectionUseCase.kt
+        │   ├── DeleteSectionUseCase.kt
+        │   └── ReorderSectionsUseCase.kt
         ├── page/
         │   ├── AddPageUseCase.kt
         │   ├── DeletePageUseCase.kt
@@ -139,9 +146,12 @@ core/data/
     │   └── ThumbnailManager.kt              # Generate and cache page thumbnails
     ├── repository/
     │   ├── NotebookRepositoryImpl.kt
+    │   ├── SectionRepositoryImpl.kt         # Phase 3
     │   ├── PageRepositoryImpl.kt
     │   ├── StrokeRepositoryImpl.kt
     │   └── PdfRepositoryImpl.kt
+    ├── preferences/                          # Phase 3
+    │   └── UserPreferencesRepository.kt     # DataStore-backed settings
     └── di/
         └── DataModule.kt                   # Hilt module for data layer
 ```
@@ -242,17 +252,20 @@ feature/notebooks/
 ├── build.gradle.kts
 └── src/main/kotlin/com/drafty/feature/notebooks/
     ├── home/
-    │   ├── HomeScreen.kt                   # Notebook grid/list screen
-    │   ├── HomeViewModel.kt
+    │   ├── HomeScreen.kt                   # Notebook grid with search, sort, FAB
+    │   ├── HomeViewModel.kt                # Reactive Flow-based state
     │   └── HomeUiState.kt
     ├── detail/
-    │   ├── NotebookDetailScreen.kt         # Sections + page thumbnails
-    │   ├── NotebookDetailViewModel.kt
+    │   ├── NotebookDetailScreen.kt         # Sections tabs + page thumbnail grid
+    │   ├── NotebookDetailViewModel.kt      # SavedStateHandle for notebookId
     │   └── NotebookDetailUiState.kt
+    ├── settings/                            # Phase 3
+    │   ├── SettingsScreen.kt               # App preferences UI
+    │   └── SettingsViewModel.kt            # Reads/writes DataStore
     ├── components/
-    │   ├── NotebookGrid.kt
-    │   ├── NewNotebookDialog.kt
-    │   └── SectionTabs.kt
+    │   ├── NotebookGrid.kt                 # LazyVerticalGrid of NotebookCards
+    │   ├── NewNotebookDialog.kt            # Title + color picker dialog
+    │   └── SectionTabs.kt                  # ScrollableTabRow + add/context menu
     └── di/
         └── NotebooksModule.kt
 ```
@@ -303,6 +316,8 @@ app/build.gradle.kts                        # App-specific: applicationId, signi
 |------|--------|-----------------|
 | (Initial) | Created initial project structure | [architecture.md](./architecture.md) |
 | Phase 0 | Scaffold created — all modules, build files, domain models, Room entities/DAOs, repository stubs, UI theme, feature screens, protobuf schema, CI workflow | [TODO.md](./TODO.md) |
+| Phase 2 | Added `BoundingBox.kt`, `TemplateConfig.kt` to `:core:domain`; Implemented `RTree`, `HitTester`, `ViewportManager`, `GestureDetector`, `TemplateRenderer` in `:core:ink-engine`; Implemented `StrokeFileManager` binary I/O in `:core:data`; Updated `CanvasViewModel` with persistence, page nav, lasso; Implemented `PageNavigator` composable; Added Hilt bindings for use cases | [TODO.md](./TODO.md), [research.md](./research.md) |
+| Phase 3 | Added `SectionRepository` + 5 section use cases to `:core:domain`; Added `SectionRepositoryImpl`, `UserPreferencesRepository` to `:core:data`; Updated `DataModule` with all missing bindings; Enhanced `CreateNotebookUseCase` with defaults; Implemented `HomeScreen`, `NotebookDetailScreen`, `SettingsScreen` + ViewModels; Implemented `NotebookCard`, `PageThumbnail`, `ConfirmDialog` components; Updated `DraftyNavGraph` with full navigation (home → detail → canvas → settings); Added `SavedStateHandle` to `CanvasViewModel` | [TODO.md](./TODO.md), [research-phase3.md](./research-phase3.md) |
 
 ---
 

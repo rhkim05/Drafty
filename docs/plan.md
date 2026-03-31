@@ -106,45 +106,66 @@ Build the canvas system that supports both paginated (notebook) and infinite (wh
 
 ---
 
-## Phase 3: Notebook Organization & UI
+## Phase 3: Home Screen & Canvas Navigation
+
+> Research: [research-phase3.md](./research-phase3.md) | Tasks: [TODO.md](./TODO.md)
+>
+> **Design change (2026-03-30):** Removed notebook/section hierarchy from UX.
+> The app uses a flat "notes" structure: Home grid of notes → tap "+" → instantly create and open a blank canvas.
+> The underlying data model (Notebook → Section → Page) still exists for future extensibility, but the user never sees sections or notebook detail screens.
 
 ### Goal
-Build the notebook management system and the main app UI shell.
+Build the home screen, settings screen, and simplified navigation so users can create, manage, and open canvas notes from a flat grid.
 
-### Features
-1. **Data hierarchy**
-   - Notebook → Section → Page
-   - Each notebook has metadata: title, cover color/image, created/modified dates
-   - Sections group pages within a notebook (like tabs)
+### Actual Architecture (Post-Simplification)
 
-2. **Home screen**
-   - Grid/list view of all notebooks
-   - Create new notebook (with template selection)
-   - Rename, duplicate, delete notebooks
-   - Sort by: recent, name, created date
-   - Favorites / pinned notebooks
+**Navigation graph (3 routes):**
+- `home` → `canvas/{notebookId}` (direct, no detail screen)
+- `home` → `settings`
+- Back from canvas/settings via `popBackStack()`
 
-3. **Notebook viewer**
-   - Section tabs along top or side
-   - Page thumbnails in sidebar (toggle-able)
-   - Quick page navigation
+**Flow for creating a new note:**
+1. User taps FAB on home screen
+2. `HomeViewModel.createAndOpenCanvas()` creates a Notebook ("Untitled", random cover color) + auto-creates Section + Page via `CreateNotebookUseCase`
+3. Emits notebook ID via `SharedFlow` → navigates to `canvas/{notebookId}`
+4. `CanvasViewModel` reads `notebookId` from `SavedStateHandle`, calls `loadNotebook()` which finds the first section and loads its first page
 
-4. **Tagging & search**
-   - Tag notebooks with custom labels
-   - Search notebooks/sections/pages by name
-   - Filter by tag, date range, favorites
+**Home screen features:**
+- 3-column grid of `NotebookCard` items
+- Search bar (live filter by title)
+- Sort menu (Recent / Name / Created)
+- Long-press context menu: Favorite, Rename, Duplicate, Delete
+- Settings icon → SettingsScreen
 
-5. **App shell & navigation**
-   - Material 3 design system
-   - Bottom navigation or side rail (tablet-optimized layout)
-   - Settings screen (palm rejection toggle, default pen settings, storage info)
-   - Dark mode support
+### Sub-phases (as implemented)
+
+#### 3A–3B. Infrastructure & UI Components
+- ✅ SectionRepository + use cases + Hilt bindings
+- ✅ CreateNotebookUseCase auto-creates Section + Page
+- ✅ NotebookCard, PageThumbnail, ConfirmDialog composables
+
+#### 3C. Home Screen (Flat Canvas Grid)
+- ✅ HomeViewModel with reactive state, createAndOpenCanvas(), search, sort, CRUD
+- ✅ HomeScreen with 3-column grid, FAB, search bar, sort menu, rename/delete dialogs
+
+#### 3D. Notebook Detail Screen (Removed)
+- ✅ Implemented but removed from nav graph — code exists for future use if hierarchy is desired
+
+#### 3E. Navigation Graph (Simplified)
+- ✅ 3 routes: home, canvas/{notebookId}, settings
+- ✅ CanvasViewModel resolves notebookId → first section → first page automatically
+- ✅ Floating back button on canvas screen
+
+#### 3F. Settings Screen
+- ✅ UserPreferencesRepository (DataStore), SettingsScreen, SettingsViewModel
 
 ### Implementation Approach
 - Jetpack Compose for all UI (Material 3 components)
-- Navigation via Jetpack Navigation Compose
-- Tablet-optimized: adaptive layouts using `WindowSizeClass` for different screen sizes
-- Notebooks stored in Room database, page stroke data in local files (binary or protobuf)
+- Navigation via Jetpack Navigation Compose (string routes with arguments)
+- 3-column grid on tablet (hardcoded for now, adaptive columns deferred)
+- Notebooks/sections/pages stored in Room database, stroke data in local protobuf files
+- Settings via Jetpack DataStore (Preferences)
+- Canvas background: gray (#E0E0E0) to distinguish from white page
 
 ---
 

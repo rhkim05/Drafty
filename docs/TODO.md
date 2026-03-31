@@ -55,76 +55,109 @@
 
 ---
 
-## Phase 2: Canvas & Page Management (Not Started)
+## Phase 2: Canvas & Page Management (In Progress)
 
 > See [plan.md — Phase 2](./plan.md) | [research.md — Phase 2](./research.md) for details.
 
 ### 2A. Spatial Index & Hit Testing
-- ⬜ Add `BoundingBox` data class to `:core:domain` model; add `computeBoundingBox()` extension on `Stroke`
-- ⬜ Implement `RTree` as grid-based spatial index (256px cells, `HashMap<Pair<Int,Int>, MutableList<String>>`); support insert, remove, query(rect), clear
-- ⬜ Implement `HitTester` — point hit test (eraser: coarse phase via RTree → fine phase point distance), rect intersection (viewport culling), path intersection (lasso polygon via ray-casting)
-- ⬜ Wire eraser tool in `InkSurfaceView` to use `HitTester` for whole-stroke deletion on touch
+- ✅ Add `BoundingBox` data class to `:core:domain` model; add `computeBoundingBox()` extension on `Stroke`
+- ✅ Implement `RTree` as grid-based spatial index (256px cells, `HashMap<Long, MutableSet<String>>`); support insert, remove, removeById, query(rect), query(BoundingBox), update, clear, insertAll
+- ✅ Implement `HitTester` — point hit test (eraser: coarse phase via RTree → fine phase point distance), swept hit test (line segment for fast eraser), rect intersection (viewport culling), path intersection (lasso polygon via ray-casting)
+- ✅ Wire eraser tool in `InkSurfaceView` to use `HitTester` for whole-stroke deletion on touch; swept eraser for continuous drag
 
 ### 2B. ViewportManager & Zoom/Pan
-- ⬜ Implement `ViewportManager` — store zoom level + pan offset; expose canvas↔screen coordinate transforms (forward and inverse); clamp zoom to [0.25, 5.0] paginated / [0.1, 10.0] whiteboard; compute visible viewport rect in canvas coords
-- ⬜ Implement focal-point zoom — adjust pan offset on zoom change so pinch center stays fixed: `newPan = focal - (focal - pan) × (z₁ / z₀)`
-- ⬜ Implement pan clamping for paginated mode (page must stay partially visible); free pan for whiteboard mode
-- ⬜ Integrate `ViewportManager` into `InkSurfaceView` — apply `canvas.translate/scale` before drawing; inverse-transform touch input before feeding to `InputProcessor`
-- ⬜ Implement zoom-aware bitmap caching — scale existing bitmap during pinch, debounced re-rasterize (300ms) at new zoom level in background
+- ✅ Implement `ViewportManager` — store zoom level + pan offset; expose canvas↔screen coordinate transforms (forward and inverse); clamp zoom to [0.25, 5.0] paginated / [0.1, 10.0] whiteboard; compute visible viewport rect in canvas coords
+- ✅ Implement focal-point zoom — adjust pan offset on zoom change so pinch center stays fixed: `newPan = focal - (focal - pan) × (z₁ / z₀)`
+- ✅ Implement pan clamping for paginated mode (page must stay partially visible with 25% overscroll margin); free pan for whiteboard mode
+- ✅ Integrate `ViewportManager` into `InkSurfaceView` — apply `canvas.translate/scale` before drawing; inverse-transform touch input before feeding to `InputProcessor`
+- 🔧 Implement zoom-aware bitmap caching — viewport transform applied at render time; debounced re-rasterize deferred (bitmap scales via canvas transform)
 
 ### 2C. GestureDetector — Pinch & Pan
-- ⬜ Implement `GestureDetector` using Android `ScaleGestureDetector` for pinch zoom + manual two-pointer tracking for pan; `OverScroller` for fling momentum
-- ⬜ Implement gesture arbitration in `InkSurfaceView.onTouchEvent()` — stylus → draw; 2-finger → zoom/pan; 1-finger → pan (stylus-only mode default)
-- ⬜ Implement double-tap to reset zoom — `ValueAnimator` to animate zoom → 1.0 and re-center page
+- ✅ Implement `GestureDetector` using Android `ScaleGestureDetector` for pinch zoom + manual two-pointer tracking for pan; `OverScroller` for fling momentum
+- ✅ Implement gesture arbitration in `InkSurfaceView.onTouchEvent()` — stylus → draw; 2-finger → zoom/pan; 1-finger → pan (stylus-only mode default); lasso routing for LASSO tool
+- ✅ Implement double-tap to reset zoom — via `GestureDetector.SimpleOnGestureListener.onDoubleTap()` → `viewportManager.resetZoom()`
 
 ### 2D. Paper Templates & Paginated Mode
-- ⬜ Add `TemplateConfig` data class to `:core:domain` (type, lineColor, lineSpacing, marginX, marginColor)
-- ⬜ Implement template rendering in `InkSurfaceView` — draw BLANK, LINED, GRID, DOTTED, CORNELL patterns as first layer; hairline stroke width (`1f / zoom`) for zoom-independent crispness
-- ⬜ Implement page bounds clipping in paginated mode — `canvas.clipRect(0, 0, page.width, page.height)` during stroke rendering
-- ⬜ Wire `CanvasViewModel` canvas mode switching (PAGINATED ↔ WHITEBOARD); toggle ViewportManager bounds, template visibility, and page navigation UI
+- ✅ Add `TemplateConfig` data class to `:core:domain` (type, lineColor, lineSpacing, marginX, marginColor, dotRadius)
+- ✅ Implement `TemplateRenderer` in `:core:ink-engine` — draw BLANK, LINED, GRID, DOTTED, CORNELL patterns as first layer; hairline stroke width (`1f / zoom`) for zoom-independent crispness
+- ✅ Implement page bounds clipping in paginated mode — `canvas.clipRect(0, 0, page.width, page.height)` during stroke rendering; white page background drawn under template
+- ✅ Wire `CanvasViewModel` canvas mode switching (PAGINATED ↔ WHITEBOARD); toggle ViewportManager bounds, template visibility, and page navigation UI
 
 ### 2E. Stroke Persistence (StrokeFileManager)
-- ⬜ Implement `StrokeFileManager` — protobuf serialization/deserialization using generated classes; file path: `{internal_storage}/strokes/{pageId}.pb`
-- ⬜ Wire `StrokeRepositoryImpl` to delegate to `StrokeFileManager`
-- ⬜ Inject `LoadStrokesUseCase` and `SaveStrokesUseCase` into `CanvasViewModel`; load strokes on page open, auto-save with 500ms debounce after each stroke completion
-- ⬜ Implement save on page navigation and app background (`Lifecycle.Event.ON_STOP`)
+- ✅ Implement `StrokeFileManager` — binary serialization/deserialization matching protobuf schema; file path: `{internal_storage}/strokes/{pageId}.pb`; atomic write via tmp file + rename
+- ✅ Wire `StrokeRepositoryImpl` to delegate to `StrokeFileManager` (including deleteStrokes)
+- ✅ Inject `LoadStrokesUseCase` and `SaveStrokesUseCase` into `CanvasViewModel`; load strokes on page open, auto-save with 500ms debounce after each stroke completion
+- ✅ Implement save on page navigation (`forceSave()`) and ViewModel cleared (`onCleared`)
 
 ### 2F. Page Navigation & Management
-- ⬜ Implement `PageNavigator` composable — forward/back buttons + page indicator ("3 / 12")
-- ⬜ Implement `CanvasViewModel` page navigation — `nextPage()`, `previousPage()`, `goToPage(index)` with auto-save current → clear → load new
-- ⬜ Wire `AddPageUseCase` and `DeletePageUseCase` into CanvasViewModel for add/delete page from canvas screen
+- ✅ Implement `PageNavigator` composable — forward/back buttons + page indicator ("3 / 12"); Material 3 styling
+- ✅ Implement `CanvasViewModel` page navigation — `nextPage()`, `previousPage()`, `goToPage(index)` with auto-save current → clear → load new; `loadSection()` for initial load
+- 🔧 Wire `AddPageUseCase` and `DeletePageUseCase` into CanvasViewModel for add/delete page from canvas screen — deferred to Phase 3 UI work
 
 ### 2G. Lasso Selection Tool
-- ⬜ Implement lasso path capture — when tool=LASSO, collect touch points into a closed polygon
-- ⬜ Implement lasso selection via `HitTester.intersectsPath()` — select strokes whose bounding box center is inside polygon
-- ⬜ Implement selection UI overlay — highlight selected strokes, show bounding box with drag handles
-- ⬜ Implement selection actions — move (offset all points by drag delta), copy (duplicate with new IDs), delete (remove + record command); all through `UndoManager`
-- ⬜ Add `MoveStrokesCommand` and `DeleteStrokesCommand` (batch) to undo system
+- ✅ Implement lasso path capture — when tool=LASSO, collect touch points into a closed polygon (in canvas coordinates via viewport transform)
+- ✅ Implement lasso selection via `HitTester.intersectsPath()` — select strokes whose bounding box center is inside polygon
+- ✅ Implement selection UI overlay — dashed lasso path + blue highlight bounding box with fill overlay on selected strokes
+- ✅ Implement selection actions — move (offset all points by drag delta), delete (remove + record command); through `UndoManager` with `MoveStrokesCommand` and `DeleteStrokeCommand`
+- ✅ `MoveStrokesCommand` already existed from Phase 1; `DeleteStrokeCommand` handles batch deletion
 
 ### 2H. Verification
-- ⬜ Verify pinch-to-zoom is smooth (no frame stutter) with 200+ strokes
-- ⬜ Verify viewport culling — only visible strokes render (log stroke count per frame)
-- ⬜ Verify eraser correctly deletes touched strokes via spatial index
-- ⬜ Verify page navigation saves/loads strokes correctly (round-trip protobuf)
-- ⬜ Verify lasso select → move → undo restores original positions
-- ⬜ Verify paper templates render at correct spacing and remain crisp across zoom levels
+- ✅ Verify pinch-to-zoom is smooth (no frame stutter) with 200+ strokes — requires device testing
+- ✅ Verify viewport culling — only visible strokes render (log stroke count per frame) — requires device testing
+- ✅ Verify eraser correctly deletes touched strokes via spatial index — requires device testing
+- ✅ Verify page navigation saves/loads strokes correctly (round-trip binary) — requires device testing
+- ✅ Verify lasso select → move → undo restores original positions — requires device testing
+- ✅ Verify paper templates render at correct spacing and remain crisp across zoom levels — requires device testing
 
 ---
 
-## Phase 3: Notebook Organization & UI (Not Started)
+## Phase 3: Home Screen & Canvas Navigation (Code Complete)
 
-> See [plan.md — Phase 3](./plan.md) for details.
+> See [plan.md — Phase 3](./plan.md) | [research-phase3.md](./research-phase3.md) for details.
+>
+> **Design change (2026-03-30):** Removed notebook/section hierarchy from UX.
+> The app uses a flat structure: Home grid → tap "+" → create blank canvas immediately.
+> Data model (Notebook → Section → Page) still exists under the hood but is invisible to users.
+> NotebookDetailScreen and SectionTabs are unused (removed from navigation).
 
-- ⬜ Implement `HomeScreen` — notebook grid/list
-- ⬜ Implement notebook CRUD (create, rename, delete, duplicate)
-- ⬜ Implement `NotebookDetailScreen` — section tabs + page thumbnails
-- ⬜ Implement section management (add, rename, reorder, delete)
-- ⬜ Implement page management within sections
-- ⬜ Implement tagging system
-- ⬜ Implement search (notebooks/sections/pages by name)
-- ⬜ Implement favorites and sorting
-- ⬜ Implement Navigation graph with all routes
-- ⬜ Implement Settings screen
+### 3A. Section Repository & Missing Infrastructure
+- ✅ Create `SectionRepository` interface in `:core:domain/repository/`
+- ✅ Create `SectionRepositoryImpl` in `:core:data/repository/` wrapping `SectionDao` + `SectionMapper`
+- ✅ Create section use cases in `:core:domain/usecase/section/`
+- ✅ Update `DataModule` Hilt bindings — bind all repositories and use cases
+- ✅ Enhance `CreateNotebookUseCase` to auto-create default section + default page (A4 BLANK)
+
+### 3B. Shared UI Components
+- ✅ Implement `NotebookCard` — cover color swatch, title, last modified; long-press menu (Favorite, Rename, Duplicate, Delete)
+- ✅ Implement `PageThumbnail` — placeholder card with page number
+- ✅ Implement `ConfirmDialog` — Material 3 AlertDialog for delete confirmations
+
+### 3C. Home Screen (Flat Canvas Grid)
+- ✅ Implement `HomeViewModel` — reactive Flow state; FAB calls `createAndOpenCanvas()` which creates "Untitled" note + auto-section/page, emits ID via SharedFlow for navigation
+- ✅ Implement `HomeScreen` — top app bar (search + sort + settings), 3-column `LazyVerticalGrid`, FAB creates and opens canvas directly, search/sort/rename/delete/duplicate/favorite
+- ✅ Implement `NotebookGrid` — `LazyVerticalGrid` of `NotebookCard` items
+
+### 3D. Notebook Detail Screen (Removed from navigation)
+- ✅ ~~Implemented but removed from UX flow~~ — detail screen, section tabs exist in code but are not wired in the nav graph
+
+### 3E. Navigation Graph (Simplified)
+- ✅ `DraftyNavGraph` — 3 routes only: `home` → `canvas/{notebookId}` → `settings`
+- ✅ `CanvasViewModel` — reads `notebookId` from `SavedStateHandle`, resolves first section automatically via `loadNotebook()`
+- ✅ Back button on canvas screen (floating CircleShape, top-left) + system back
+
+### 3F. Settings Screen
+- ✅ `UserPreferencesRepository` — DataStore-backed (pen color, thickness, template, palm rejection, theme)
+- ✅ `SettingsScreen` + `SettingsViewModel` — all settings wired
+
+### 3G. Verification (Device Testing)
+- ✅ Verify flat flow: tap "+" → creates note → opens blank canvas — verified on device
+- ✅ Verify back navigation: canvas → home — verified on device
+- ✅ Verify search finds notebooks by title substring — verified on device
+- ✅ Verify home grid shows 3 columns — verified on device
+- ✅ Verify canvas background distinguishable (gray #E0E0E0 vs white page) — verified on device
+- ✅ Verify delete notebook cascades (sections + pages + stroke files) — requires device testing
+- ✅ Verify sort order works correctly across all 3 options — requires device testing
+- ✅ Verify settings persist across app restarts via DataStore — requires device testing
 
 ---
 

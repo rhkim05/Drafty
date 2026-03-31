@@ -46,6 +46,12 @@ class StrokeRenderer {
     /**
      * Renders a completed [Stroke] with full Bézier smoothing and
      * pressure-sensitive width.
+     *
+     * Completed strokes are stored with canvas-space thickness (screen
+     * thickness ÷ zoom at draw time). They are rendered inside the
+     * viewport transform, so they scale naturally with zoom — zooming
+     * in makes them bigger, zooming out makes them smaller.
+     * See: issues.md ISS-017, ISS-018.
      */
     fun renderStroke(canvas: Canvas, stroke: Stroke) {
         val pressureMapper = getPressureMapper(stroke.tool, stroke.baseThickness)
@@ -62,7 +68,6 @@ class StrokeRenderer {
 
     /**
      * Renders a list of completed strokes onto a canvas.
-     * Used when rebuilding the completed-strokes bitmap cache.
      */
     fun renderStrokes(canvas: Canvas, strokes: List<Stroke>) {
         for (stroke in strokes) {
@@ -76,10 +81,11 @@ class StrokeRenderer {
      *
      * This is the fast path for real-time rendering during drawing.
      *
-     * @param canvas Target canvas
+     * @param canvas Target canvas (with viewport transform already applied)
      * @param points Current raw input points
      * @param color Stroke color
-     * @param thickness Base stroke thickness
+     * @param thickness Base stroke thickness in canvas space (already divided
+     *   by zoom by the caller so it appears at constant screen size while drawing)
      * @param tool Active tool
      */
     fun renderActiveStroke(
@@ -102,15 +108,47 @@ class StrokeRenderer {
             return
         }
 
-        // Circle strip for active stroke — use raw points with pressure mapping
+        // Circle strip for active stroke — interpolate between raw points
+        // so fast drawing doesn't produce visible gaps between circles.
         val paint = getPaintForTool(tool)
         paint.color = color.toInt()
 
-        for (point in points) {
-            val radius = pressureMapper.map(point.pressure) / 2f
-            canvas.drawCircle(point.x, point.y, radius, paint)
+        var prevPoint = points[0]
+        var prevRadius = pressureMapper.map(prevPoint.pressure) / 2f
+        canvas.drawCircle(prevPoint.x, prevPoint.y, prevRadius, paint)
+
+        for (i in 1 until points.size) {
+            val curr = points[i]
+            val currRadius = pressureMapper.map(curr.pressure) / 2f
+
+            // Compute distance between consecutive points
+            val dx = curr.x - prevPoint.x
+            val dy = curr.y - prevPoint.y
+            val dist = Math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
+
+            // Step size = half the average radius (ensures circle overlap)
+            val avgRadius = (prevRadius + currRadius) / 2f
+            val step = (avgRadius * 0.5f).coerceAtLeast(0.5f)
+
+            if (dist > step) {
+                // Interpolate circles between prev and curr
+                val steps = (dist / step).toInt().coerceAtMost(200)
+                for (s in 1..steps) {
+                    val t = s.toFloat() / (steps + 1)
+                    val ix = prevPoint.x + dx * t
+                    val iy = prevPoint.y + dy * t
+                    val iRadius = lerp(prevRadius, currRadius, t)
+                    canvas.drawCircle(ix, iy, iRadius, paint)
+                }
+            }
+
+            canvas.drawCircle(curr.x, curr.y, currRadius, paint)
+            prevPoint = curr
+            prevRadius = currRadius
         }
     }
+
+    private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t
 
     /**
      * Returns the appropriate [PressureMapper] for the given tool.

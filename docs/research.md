@@ -611,3 +611,7 @@ User touches screen
 ---
 
 *Next step: Update [TODO.md](./TODO.md) with detailed Phase 2 subtasks, then implement.*
+
+---
+
+> **Phase 3 research has been split into a separate file due to size:** [research-phase3.md](./research-phase3.md)

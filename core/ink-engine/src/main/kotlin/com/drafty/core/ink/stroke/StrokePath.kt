@@ -46,8 +46,21 @@ class StrokePath {
         val points = mutableListOf<RenderPoint>()
 
         for (segment in segments) {
-            for (i in 0..samplesPerSegment) {
-                val t = i.toFloat() / samplesPerSegment
+            // Adaptive sampling: compute chord length and use enough
+            // samples so each step is at most half the average radius.
+            val chordDx = segment.b3x - segment.b0x
+            val chordDy = segment.b3y - segment.b0y
+            val chordLen = Math.sqrt((chordDx * chordDx + chordDy * chordDy).toDouble()).toFloat()
+            val avgPressure = (segment.startPressure + segment.endPressure) / 2f
+            val avgWidth = pressureMapper.map(avgPressure)
+            val step = (avgWidth * 0.4f).coerceAtLeast(0.5f)
+            val adaptiveSamples = maxOf(
+                samplesPerSegment,
+                (chordLen / step).toInt().coerceAtMost(500),
+            )
+
+            for (i in 0..adaptiveSamples) {
+                val t = i.toFloat() / adaptiveSamples
 
                 // Cubic Bézier evaluation: B(t) = (1-t)³B0 + 3(1-t)²tB1 + 3(1-t)t²B2 + t³B3
                 val oneMinusT = 1f - t

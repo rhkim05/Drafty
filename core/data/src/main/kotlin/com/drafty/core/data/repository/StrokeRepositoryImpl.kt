@@ -15,7 +15,6 @@ class StrokeRepositoryImpl @Inject constructor(
     override suspend fun saveStrokes(pageId: String, strokes: List<Stroke>) =
         strokeFileManager.saveStrokes(pageId, strokes)
 
-    override suspend fun deleteStrokes(pageId: String) {
-        // TODO: Implement stroke deletion
-    }
+    override suspend fun deleteStrokes(pageId: String) =
+        strokeFileManager.deleteStrokes(pageId)
 }
