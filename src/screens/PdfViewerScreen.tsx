@@ -17,8 +17,8 @@ import RNFS from 'react-native-fs';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation';
 import Toolbar from '../components/Toolbar';
-import PdfCanvasView from '../native/PdfCanvasView';
-import PdfCanvasModule from '../native/PdfCanvasModule';
+import CanvasView from '../native/CanvasView';
+import CanvasModule from '../native/CanvasModule';
 import { useToolStore } from '../store/useToolStore';
 import { useNotebookStore } from '../store/useNotebookStore';
 import ThumbnailStrip from '../components/ThumbnailStrip';
@@ -51,11 +51,11 @@ export default function PdfViewerScreen({ route, navigation }: Props) {
   // Listen to native events from PdfDrawingView
   useEffect(() => {
     const pageSub = DeviceEventEmitter.addListener(
-      'pdfCanvasPageChanged',
+      'canvasPageChanged',
       ({ page }: { page: number }) => setCurrentPage(page),
     );
     const loadSub = DeviceEventEmitter.addListener(
-      'pdfCanvasLoadComplete',
+      'canvasLoadComplete',
       ({ totalPages: tp }: { totalPages: number }) => {
         setTotalPages(tp);
         setLoading(false);
@@ -65,7 +65,7 @@ export default function PdfViewerScreen({ route, navigation }: Props) {
         // Jump to last checkpoint
         if (note.lastPage && note.lastPage > 1) {
           const tag = findNodeHandle(viewRef.current);
-          if (tag) PdfCanvasModule.scrollToPage(tag, note.lastPage);
+          if (tag) CanvasModule.scrollToPage(tag, note.lastPage);
         }
       },
     );
@@ -81,7 +81,7 @@ export default function PdfViewerScreen({ route, navigation }: Props) {
     // Only load flat-array format (document coordinates); skip legacy per-page format
     if (!json.startsWith('[')) return;
     const tag = findNodeHandle(viewRef.current);
-    if (tag) PdfCanvasModule.loadStrokes(tag, json);
+    if (tag) CanvasModule.loadStrokes(tag, json);
   }, [note.drawingUri]);
 
   // Save strokes and page checkpoint when navigating back
@@ -89,7 +89,7 @@ export default function PdfViewerScreen({ route, navigation }: Props) {
     updateNote(note.id, { lastPage: currentPage, updatedAt: Date.now() });
     const tag = findNodeHandle(viewRef.current);
     if (!tag) return;
-    const json = await PdfCanvasModule.getStrokes(tag);
+    const json = await CanvasModule.getStrokes(tag);
     if (json === '[]') return;
     await RNFS.mkdir(DRAWINGS_DIR);
     const filePath = `${DRAWINGS_DIR}/${note.id}.json`;
@@ -106,7 +106,7 @@ export default function PdfViewerScreen({ route, navigation }: Props) {
     const page = parseInt(pageInputText, 10);
     if (!isNaN(page) && page >= 1 && page <= totalPages) {
       const tag = findNodeHandle(viewRef.current);
-      if (tag) PdfCanvasModule.scrollToPage(tag, page);
+      if (tag) CanvasModule.scrollToPage(tag, page);
     }
     setShowPageInput(false);
     setPageInputText('');
@@ -114,12 +114,12 @@ export default function PdfViewerScreen({ route, navigation }: Props) {
 
   const handleUndo = useCallback(() => {
     const tag = findNodeHandle(viewRef.current);
-    if (tag) PdfCanvasModule.undo(tag);
+    if (tag) CanvasModule.undo(tag);
   }, []);
 
   const handleRedo = useCallback(() => {
     const tag = findNodeHandle(viewRef.current);
-    if (tag) PdfCanvasModule.redo(tag);
+    if (tag) CanvasModule.redo(tag);
   }, []);
 
   return (
@@ -150,7 +150,7 @@ export default function PdfViewerScreen({ route, navigation }: Props) {
           </View>
         )}
 
-        <PdfCanvasView
+        <CanvasView
           ref={viewRef}
           pdfUri={note.pdfUri}
           tool={activeTool}
@@ -209,7 +209,7 @@ export default function PdfViewerScreen({ route, navigation }: Props) {
           currentPage={currentPage}
           onPageSelect={(page) => {
             const tag = findNodeHandle(viewRef.current);
-            if (tag) PdfCanvasModule.scrollToPage(tag, page);
+            if (tag) CanvasModule.scrollToPage(tag, page);
           }}
         />
       )}

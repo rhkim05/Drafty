@@ -17,7 +17,7 @@ import {
 import DocumentPicker from 'react-native-document-picker';
 import RNFS from 'react-native-fs';
 import PdfThumbnail from 'react-native-pdf-thumbnail';
-import PdfCanvasModule from '../native/PdfCanvasModule';
+import CanvasModule from '../native/CanvasModule';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNotebookStore } from '../store/useNotebookStore';
@@ -139,7 +139,7 @@ export default function HomeScreen() {
           updates.thumbnailUri = thumbPath;
         }
         if (!note.totalPages) {
-          updates.totalPages = await PdfCanvasModule.getPageCount(note.pdfUri);
+          updates.totalPages = await CanvasModule.getPageCountFromFile(note.pdfUri);
         }
         if (Object.keys(updates).length > 0) updateNote(note.id, updates);
       } catch {
@@ -205,7 +205,7 @@ export default function HomeScreen() {
           thumbnailUri = thumbPath;
         })(),
         (async () => {
-          totalPages = await PdfCanvasModule.getPageCount(destPath);
+          totalPages = await CanvasModule.getPageCountFromFile(destPath);
         })(),
       ]);
 

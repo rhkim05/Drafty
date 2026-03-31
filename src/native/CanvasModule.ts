@@ -1,13 +1,16 @@
-// 뷰포트 이동, 캔버스 초기화, 파일 저장등 캔버스에 직접 명령(Method)을 내리거나
-// 네이티브 이벤트를 받아오는 브릿지 모듈.
 import { NativeModules } from 'react-native';
 
-const { CanvasModule } = NativeModules;
+const { UnifiedCanvasModule } = NativeModules;
 
 export default {
-  undo: (viewTag: number) => CanvasModule.undo(viewTag),
-  redo: (viewTag: number) => CanvasModule.redo(viewTag),
-  clear: (viewTag: number) => CanvasModule.clear(viewTag),
-  getStrokes: (viewTag: number): Promise<string> => CanvasModule.getStrokes(viewTag),
-  loadStrokes: (viewTag: number, json: string) => CanvasModule.loadStrokes(viewTag, json),
+  undo: (viewTag: number) => UnifiedCanvasModule.undo(viewTag),
+  redo: (viewTag: number) => UnifiedCanvasModule.redo(viewTag),
+  clear: (viewTag: number) => UnifiedCanvasModule.clear(viewTag),
+  getStrokes: (viewTag: number): Promise<string> => UnifiedCanvasModule.getStrokes(viewTag),
+  loadStrokes: (viewTag: number, json: string) => UnifiedCanvasModule.loadStrokes(viewTag, json),
+  scrollToPage: (viewTag: number, page: number) => UnifiedCanvasModule.scrollToPage(viewTag, page),
+  getPageCount: (viewTag: number): Promise<number> => UnifiedCanvasModule.getPageCount(viewTag),
+  getPageCountFromFile: (filePath: string): Promise<number> => UnifiedCanvasModule.getPageCountFromFile(filePath),
+  addPage: (viewTag: number) => UnifiedCanvasModule.addPage(viewTag),
+  prependPage: (viewTag: number) => UnifiedCanvasModule.prependPage(viewTag),
 };

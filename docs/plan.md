@@ -1,6 +1,6 @@
 # Plan: Unify DrawingCanvas and PdfDrawingView
 
-> Status: **Not started**
+> Status: **Completed**
 > Created: 2026-03-31
 
 ## Motivation

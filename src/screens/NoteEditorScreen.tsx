@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   StyleSheet,
   SafeAreaView,
   findNodeHandle,
+  DeviceEventEmitter,
 } from 'react-native';
 import RNFS from 'react-native-fs';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -24,6 +25,8 @@ const DRAWINGS_DIR = `${RNFS.DocumentDirectoryPath}/drawings`;
 export default function NoteEditorScreen({ route, navigation }: Props) {
   const { note } = route.params;
   const canvasRef = useRef<any>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
   const activeTool      = useToolStore(s => s.activeTool);
   const penThickness    = useToolStore(s => s.penThickness);
   const eraserThickness = useToolStore(s => s.eraserThickness);
@@ -32,32 +35,41 @@ export default function NoteEditorScreen({ route, navigation }: Props) {
   const updateNote = useNotebookStore(s => s.updateNote);
   const theme = useTheme();
 
-  // Save strokes to file and update the note record
+  useEffect(() => {
+    const pageSub = DeviceEventEmitter.addListener(
+      'canvasPageChanged',
+      ({ page }: { page: number }) => setCurrentPage(page),
+    );
+    return () => { pageSub.remove(); };
+  }, []);
+
   const saveStrokes = useCallback(async () => {
     const tag = findNodeHandle(canvasRef.current);
     if (!tag) return;
     const json = await CanvasModule.getStrokes(tag);
-    if (json === '[]') return; // nothing to save
+    if (json === '[]' || json === '{"version":2,"canvasWidth":0,"strokes":[]}') return;
     await RNFS.mkdir(DRAWINGS_DIR);
     const filePath = `${DRAWINGS_DIR}/${note.id}.json`;
     await RNFS.writeFile(filePath, json, 'utf8');
     updateNote(note.id, { drawingUri: filePath, updatedAt: Date.now() });
   }, [note.id, updateNote]);
 
-  // Save when the user navigates back
   useEffect(() => {
     const unsub = navigation.addListener('beforeRemove', saveStrokes);
     return unsub;
   }, [navigation, saveStrokes]);
 
-  // Load strokes once the canvas is laid out
   const handleLayout = useCallback(async () => {
     if (!note.drawingUri) return;
     const exists = await RNFS.exists(note.drawingUri);
     if (!exists) return;
     const json = await RNFS.readFile(note.drawingUri, 'utf8');
     const tag = findNodeHandle(canvasRef.current);
-    if (tag) CanvasModule.loadStrokes(tag, json);
+    if (tag) {
+      CanvasModule.loadStrokes(tag, json);
+      const pageCount = await CanvasModule.getPageCount(tag);
+      setTotalPages(pageCount);
+    }
   }, [note.drawingUri]);
 
   const handleUndo = useCallback(() => {
@@ -70,6 +82,14 @@ export default function NoteEditorScreen({ route, navigation }: Props) {
     if (tag) CanvasModule.redo(tag);
   }, []);
 
+  const handleAddPage = useCallback(() => {
+    const tag = findNodeHandle(canvasRef.current);
+    if (tag) {
+      CanvasModule.addPage(tag);
+      setTotalPages(p => p + 1);
+    }
+  }, []);
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
       <View style={[styles.header, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
@@ -77,10 +97,18 @@ export default function NoteEditorScreen({ route, navigation }: Props) {
           <Text style={[styles.backButtonText, { color: theme.text }]}>← Back</Text>
         </TouchableOpacity>
         <Text style={[styles.title, { color: theme.text }]} numberOfLines={1}>{note.title}</Text>
-        <View style={styles.headerRight} />
+        <TouchableOpacity style={styles.addPageBtn} onPress={handleAddPage}>
+          <Text style={[styles.addPageText, { color: theme.text }]}>+ Page</Text>
+        </TouchableOpacity>
       </View>
 
-      <Toolbar onUndo={handleUndo} onRedo={handleRedo} />
+      <Toolbar
+        showHandTool
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        currentPage={currentPage}
+        totalPages={totalPages}
+      />
 
       <CanvasView
         ref={canvasRef}
@@ -121,11 +149,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center',
   },
-  headerRight: {
-    width: 60,
+  addPageBtn: {
+    paddingVertical: 6,
+    paddingLeft: 16,
+  },
+  addPageText: {
+    fontSize: 14,
+    fontWeight: '500',
   },
   canvas: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#E8E8E8',
   },
 });

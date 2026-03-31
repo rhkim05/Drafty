@@ -1,4 +1,3 @@
-// Kotlin으로 개발한 Canvas 뷰를 네이티브 컴포넌트로 매핑
 import React, { forwardRef, useEffect } from 'react';
 import { DeviceEventEmitter, requireNativeComponent, StyleProp, ViewStyle } from 'react-native';
 import { ToolMode } from '../types/canvasTypes';
@@ -11,11 +10,12 @@ interface CanvasViewProps {
   penThickness: number;
   eraserThickness: number;
   eraserMode: string;
+  pdfUri?: string;
   style?: StyleProp<ViewStyle>;
   onLayout?: () => void;
 }
 
-const NativeCanvasView = requireNativeComponent<CanvasViewProps>('CanvasView');
+const NativeCanvasView = requireNativeComponent<CanvasViewProps>('UnifiedCanvasView');
 
 const CanvasView = forwardRef<any, CanvasViewProps>((props, ref) => {
   const { setCanUndo, setCanRedo, setTool } = useToolStore();

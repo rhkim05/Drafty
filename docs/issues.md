@@ -126,15 +126,15 @@ Both `NoteEditorScreen.tsx` and `PdfViewerScreen.tsx` rely solely on React Navig
 3. **Both**: AppState for immediate backgrounding + interval as a safety net.
 
 **Files/architecture affected:**
-- `src/screens/NoteEditorScreen.tsx` — save logic (line ~49)
-- `src/screens/PdfViewerScreen.tsx` — save logic (line ~101)
-- `src/native/CanvasModule.ts` / `PdfCanvasModule.ts` — `getStrokes()` calls
+- `src/screens/NoteEditorScreen.tsx` — save logic
+- `src/screens/PdfViewerScreen.tsx` — save logic
+- `src/native/CanvasModule.ts` — unified `getStrokes()` call (now only one module instead of two)
 
 ---
 
 ## ISSUE-006: PDF Annotations Stored as Flat Array Without Page Tagging
 
-**Status:** Open (architectural limitation)
+**Status:** Resolved
 **Severity:** Medium (performance and export implications)
 **Date discovered:** 2026-03-31
 
@@ -149,19 +149,19 @@ All PDF annotation strokes are serialized as a single flat JSON array per note w
 2. **Export**: "export annotations for pages 3–5" requires geometric calculation to filter strokes by Y-offset ranges, not a simple field filter.
 3. **Ambiguity**: strokes near page boundaries could be geometrically ambiguous about which page they belong to.
 
-**How to fix:**
-Add an optional `page: number` field to the stroke serialization format. When committing a stroke in `PdfDrawingView.kt`, compute which page it falls on using `pageYOffsets` and tag it. For backwards compatibility, treat strokes without a `page` field as legacy (compute page from Y-coordinate on load).
+**How it was fixed:**
+The unified canvas refactoring added page-aware serialization. `UnifiedCanvasView.getStrokesJson()` now computes and includes a `page` field for each stroke using `computePageForStroke()`. The version 2 JSON format wraps strokes with `{"version": 2, "canvasWidth": ..., "strokes": [...]}`. Legacy files (bare arrays) are still supported on load.
 
 **Files/architecture affected:**
-- `android/app/src/main/java/com/tabletnoteapp/canvas/models/Stroke.kt` — add page field
-- `android/app/src/main/java/com/tabletnoteapp/canvas/PdfDrawingView.kt` — tag strokes on commit, filter on render
-- Stroke JSON format — schema change (needs migration strategy)
+- `android/.../canvas/UnifiedCanvasView.kt` — page-aware serialization
+- `android/.../canvas/BaseDrawingEngine.kt` — shared stroke engine
+- `android/.../canvas/PagedScrollEngine.kt` — page layout and offsets
 
 ---
 
 ## ISSUE-007: Undo Performance Degrades with Stroke Count
 
-**Status:** Open (architectural limitation)
+**Status:** Resolved
 **Severity:** Medium (latency scales linearly with note complexity)
 **Date discovered:** 2026-03-31
 
@@ -176,14 +176,12 @@ The undo implementation in `DrawingCanvas.kt` and `PdfDrawingView.kt` takes the 
 - Medium notes (100–500 strokes): slight delay
 - Long sessions (1000+ strokes, e.g., lecture notes): visible UI freeze on each undo
 
-**How to fix:**
-1. **Checkpoint snapshots**: periodically save the bitmap state (e.g., every 50 strokes). On undo, replay from the nearest checkpoint instead of from scratch.
-2. **Incremental undo for AddStroke**: instead of full replay, redraw only the area affected by the removed stroke (partial invalidation).
-3. **Hybrid rendering**: only use `LAYER_TYPE_SOFTWARE` during active eraser strokes; switch to hardware acceleration for normal pen rendering.
+**How it was fixed:**
+The unified `BaseDrawingEngine` uses list-based undo (remove stroke from list + invalidate) instead of bitmap replay. Undo is now O(1) instead of O(n). All strokes are redrawn each frame in the visible viewport, which is efficient for typical note sizes. If performance degrades with 1000+ strokes, bitmap checkpoints can be added as an optimization.
 
 **Files/architecture affected:**
-- `android/app/src/main/java/com/tabletnoteapp/canvas/DrawingCanvas.kt` — undo/replay logic
-- `android/app/src/main/java/com/tabletnoteapp/canvas/PdfDrawingView.kt` — same pattern
+- `android/.../canvas/BaseDrawingEngine.kt` — O(1) list-based undo/redo
+- `android/.../canvas/UnifiedCanvasView.kt` — composes BaseDrawingEngine
 
 ---
 
@@ -206,8 +204,7 @@ All pen drawing, Bezier curve rendering, and bitmap operations run on CPU. On hi
 Dynamically toggle layer type: use `LAYER_TYPE_HARDWARE` by default, switch to `LAYER_TYPE_SOFTWARE` only when the eraser tool is active, and switch back when returning to pen. Requires testing for visual artifacts during transitions.
 
 **Files/architecture affected:**
-- `android/app/src/main/java/com/tabletnoteapp/canvas/DrawingCanvas.kt` — line 25
-- `android/app/src/main/java/com/tabletnoteapp/canvas/PdfDrawingView.kt` — line 173
+- `android/app/src/main/java/com/tabletnoteapp/canvas/UnifiedCanvasView.kt` — `setLayerType(LAYER_TYPE_SOFTWARE, null)` in init
 
 ---
 
@@ -236,3 +233,32 @@ Security patches and library updates requiring newer SDKs will be blocked. Upgra
 - `android/gradle/wrapper/gradle-wrapper.properties` — Gradle version
 - `android/gradle.properties` — Kotlin version, arch flags
 - `package.json` — pinned JS dependency versions
+
+---
+
+## ISSUE-010: Unified Canvas Refactoring — Architecture Change
+
+**Status:** Resolved
+**Severity:** N/A (architecture improvement)
+**Date discovered:** 2026-03-31
+
+**What happened:**
+`DrawingCanvas.kt` (blank notes) and `PdfDrawingView.kt` (PDF annotations) shared ~150 lines of copy-pasted logic. Adding scroll/zoom/multi-page to blank notes would have duplicated another ~200 lines from PdfDrawingView.
+
+**Why it happened:**
+The two views were built independently for different use cases. As requirements converged (blank notes need scrolling and multi-page), the duplication became a maintenance burden.
+
+**How it was fixed:**
+Extracted shared logic into two helper classes and created a single unified view:
+- `BaseDrawingEngine.kt` — stroke management, touch dispatch, undo/redo, serialization
+- `PagedScrollEngine.kt` — coordinate transforms, scroll/fling/zoom, page layout, scrollbar, overscroll-to-add
+- `UnifiedCanvasView.kt` — composes both engines; supports blank-page and PDF modes
+- `UnifiedCanvasViewManager.kt` + `UnifiedCanvasModule.kt` — single React Native bridge
+- `CanvasView.tsx` + `CanvasModule.ts` — single React wrapper (PdfCanvasView.tsx/PdfCanvasModule.ts deleted)
+
+Blank notes now support: multi-page scrolling, pinch zoom, overscroll-to-add-page, add/prepend page buttons, page-aware stroke serialization (version 2 JSON format), and legacy coordinate migration.
+
+**Files/architecture affected:**
+- Deleted: `DrawingCanvas.kt`, `PdfDrawingView.kt`, `CanvasViewManager.kt`, `PdfCanvasViewManager.kt`, `CanvasModule.kt` (bridge), `PdfCanvasModule.kt` (bridge), `PdfCanvasView.tsx`, `PdfCanvasModule.ts`
+- Created: `BaseDrawingEngine.kt`, `PagedScrollEngine.kt`, `UnifiedCanvasView.kt`, `UnifiedCanvasViewManager.kt`, `UnifiedCanvasModule.kt`
+- Modified: `CanvasPackage.kt`, `CanvasView.tsx`, `CanvasModule.ts`, `NoteEditorScreen.tsx`, `PdfViewerScreen.tsx`, `HomeScreen.tsx`, `Stroke.kt` (added `UndoAction.AddPage`)
